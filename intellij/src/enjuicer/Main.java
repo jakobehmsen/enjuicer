@@ -7,10 +7,11 @@ import java.util.Arrays;
 public class Main {
     public static void main(String[] args) {
         MainView view = new MainView(Arrays.asList(
-            new LineTool(),
+            /*new LineTool(),
             new RectTool(),
             new NumberTool(),
-            new TextTool(),
+            new TextTool(),*/
+            new UseTool(),
             new MarkTool(),
             new InspectTool(),
             new MoveTool()
