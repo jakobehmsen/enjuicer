@@ -1001,10 +1001,30 @@ public class MainView extends JFrame implements Canvas {
 
             @Override
             public Cell visitBlock(@NotNull LangParser.BlockContext ctx) {
-                ArrayList<ParameterInfo> parameters = new ArrayList<>();
-                Cell bodyCell = reduceSource(ctx.expression(), new Hashtable<>(), parameters);
+                ArrayList<ParameterInfo> blockParameters = new ArrayList<>();
+                Cell bodyCell = reduceSource(ctx.expression(), new Hashtable<>(), blockParameters);
 
-                return new Singleton(new Block(bodyCell));
+                /*
+                TODO:
+                A block shouldn't just be a singleton but should instead be a cell that sends new versions of itself
+                when its bodyCell changes.
+                This probably requires parameterAndUsageCells (see below) to somehow implement the consume method.
+                - Perhaps some sort of parameter info should be sent? Just the parameterName perhaps
+                */
+
+                return new Cell() {
+                    @Override
+                    public Binding consume(CellConsumer consumer) {
+                        return bodyCell.consume(v -> consumer.next(value(null)));
+                    }
+
+                    @Override
+                    public Object value(Object[] args) {
+                        return new Block(bodyCell);
+                    }
+                };
+
+                //return new Singleton(new Block(bodyCell));
             }
 
             @Override
@@ -1022,7 +1042,11 @@ public class MainView extends JFrame implements Canvas {
                 return new Cell() {
                     @Override
                     public Binding consume(CellConsumer consumer) {
-                        return null;
+                        consumer.next(parameterName);
+
+                        return () -> { };
+
+                        //return null;
                     }
 
                     @Override
