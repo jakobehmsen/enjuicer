@@ -289,10 +289,7 @@ public class MainView extends JFrame implements Canvas {
     public MainView(java.util.List<Tool> tools) {
         this.tools = tools;
 
-        // Plotabit
-        // Enjuicer "End-user"
-        // Injuicer "Induser"
-        setTitle("Draw'n'map");
+        setTitle("Enjuicer");
 
         toolBoxView = createToolBoxView();
         canvasView = createCanvasView();
@@ -302,6 +299,8 @@ public class MainView extends JFrame implements Canvas {
         getContentPane().add(toolBoxView, BorderLayout.NORTH);
         getContentPane().add(canvasView, BorderLayout.CENTER);
         getContentPane().add(scriptView, BorderLayout.SOUTH);
+
+        define("toString", Object.class, x -> x.toString());
 
         define("+", BigDecimal.class, BigDecimal.class, (lhs, rhs) -> lhs.add(rhs));
         define("-", BigDecimal.class, BigDecimal.class, (lhs, rhs) -> lhs.subtract(rhs));
@@ -317,15 +316,31 @@ public class MainView extends JFrame implements Canvas {
         define("+", Tuple.class, Tuple.class, (lhs, rhs) ->
             new Tuple(Stream.concat(Arrays.asList(lhs.values).stream(), Arrays.asList(rhs.values).stream()).toArray())
         );
+        define("*", Tuple.class, BigDecimal.class, (lhs, rhs) -> {
+            Object[] newValues = new Object[lhs.values.length * rhs.intValue()];
 
-        define("apply", Tuple.class, Object.class, Block.class, (tuple, seed, reduction) ->
-            Arrays.asList(tuple.values).stream().reduce(seed, (x, y) ->
+            for(int i = 0; i < rhs.intValue(); i++)
+                System.arraycopy(lhs.values, 0, newValues, i * lhs.values.length, lhs.values.length);
+
+            return new Tuple(newValues);
+        });
+        define("apply", Tuple.class, Block.class, (tuple, reduction) ->
+            Arrays.asList(tuple.values).stream().reduce((x, y) ->
                 reduction.cell.value(new Object[]{x, y})
-            )
+            ).get()
         );
-
         define("map", Tuple.class, Block.class, (tuple, reduction) ->
             new Tuple(Arrays.asList(tuple.values).stream().map(x -> reduction.cell.value(new Object[]{x})).toArray())
+        );
+        define("keep", Tuple.class, BigDecimal.class, (tuple, count) ->
+            new Tuple(Arrays.asList(tuple.values).stream().limit(count.longValue()).toArray())
+        );
+        define("skip", Tuple.class, BigDecimal.class, (tuple, count) ->
+            new Tuple(Arrays.asList(tuple.values).stream().skip(count.longValue()).toArray())
+        );
+        define("flatMap", Tuple.class, Block.class, (tuple, mapper) ->
+                new Tuple(Arrays.asList(tuple.values).stream().flatMap(x ->
+                    Stream.of(((Tuple) mapper.cell.value(new Object[]{x})).values)).toArray())
         );
     }
 
