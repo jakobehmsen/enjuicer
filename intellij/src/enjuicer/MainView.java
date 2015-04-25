@@ -955,46 +955,6 @@ public class MainView extends JFrame implements Canvas {
                         return args[ordinal];
                     }
                 };
-
-
-
-
-
-                /*String id = ctx.ID().getText();
-                Cell cell = environment.get(id);
-
-                idToCellMap.put(id, cell);
-
-                return cell;*/
-            }
-
-            @Override
-            public Cell visitParameterAndUsage(@NotNull LangParser.ParameterAndUsageContext ctx) {
-                String parameterName = ctx.ID().getText();
-
-                // Find the last local with the parameterName
-                int ordinal =
-                    IntStream.range(0, locals.size()).boxed().sorted(((Comparator<Integer>)Integer::compare).reversed())
-                        .filter(i -> locals.get(i).name.equals(parameterName))
-                        .findFirst()
-                        .orElseGet(() -> {
-                            locals.add(new VariableInfo(Object.class, parameterName, depth));
-                            return locals.size() - 1;
-                        });
-
-                return new Cell() {
-                    @Override
-                    public Binding consume(CellConsumer consumer) {
-                        consumer.next(parameterName);
-
-                        return () -> { };
-                    }
-
-                    @Override
-                    public Object value(Object[] args) {
-                        return args[ordinal];
-                    }
-                };
             }
 
             @Override

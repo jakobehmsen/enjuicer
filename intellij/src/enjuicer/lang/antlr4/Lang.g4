@@ -11,8 +11,7 @@ expression: addExpression;
 addExpression: mulExpression (ADD_OP mulExpression)*;
 mulExpression: leafExpression (MUL_OP leafExpression)*;
 leafExpression: 
-    functionCall | property | id | number | string | array | block |
-    parameterAndUsage | embeddedExpression;
+    functionCall | property | id | number | string | array | block | embeddedExpression;
 functionCall: id OPEN_PAR (expression (COMMA expression)*)? CLOSE_PAR;
 property: target=id DOT name=id;
 propertyAssign: target=id DOT name=id ASSIGN_OP expression;
@@ -21,7 +20,6 @@ number: NUMBER;
 string: STRING;
 array: OPEN_SQ (expression (COMMA expression)*)? CLOSE_SQ;
 block: OPEN_BRA parameters? expression CLOSE_BRA;
-parameterAndUsage: COLON ID;
 embeddedExpression: OPEN_PAR expression CLOSE_PAR;
 
 COMMA: ',';
