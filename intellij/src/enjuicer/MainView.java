@@ -240,8 +240,8 @@ public class MainView extends JFrame implements Canvas {
         }
     }
 
-    private Function<Object[], Object> resolve(String name, Object[] arguments) {
-        java.util.List<Function<Object[], Object>> candidates = functions.entrySet().stream()
+    private FunctionInfo resolve(String name, Object[] arguments) {
+        java.util.List<FunctionInfo> candidates = functions.entrySet().stream()
             .filter(x ->
                 x.getKey().name.equals(name))
             .filter(x ->
@@ -260,15 +260,19 @@ public class MainView extends JFrame implements Canvas {
         return null;
     }
 
-    private Hashtable<Selector, Function<Object[], Object>> functions = new Hashtable<>();
+    private Hashtable<Selector, FunctionInfo> functions = new Hashtable<>();
 
     private void define(String name, Class<?>[] parameterTypes, Function<Object[], Object> function) {
-        functions.put(new Selector(name, parameterTypes), function);
+        define(name, parameterTypes, parameterTypes.length, function);
     }
 
-    private void defineWrapper(String name, Class<?>[] parameterTypes, Function<Object[], Function<Function<Object, SlotValueComponent>, SlotValueComponent>> wrapper) {
-        functions.put(new Selector(name, parameterTypes), args -> wrapper.apply(args));
+    private void define(String name, Class<?>[] parameterTypes, int localCount, Function<Object[], Object> function) {
+        functions.put(new Selector(name, parameterTypes), new FunctionInfo(localCount, function));
     }
+
+    /*private void defineWrapper(String name, Class<?>[] parameterTypes, Function<Object[], Function<Function<Object, SlotValueComponent>, SlotValueComponent>> wrapper) {
+        functions.put(new Selector(name, parameterTypes), args -> wrapper.apply(args));
+    }*/
 
     private <Return> void define(String name, Supplier<Return> function) {
         define(name, new Class<?>[0], args -> function.get());
@@ -324,13 +328,13 @@ public class MainView extends JFrame implements Canvas {
 
             return new Tuple(newValues);
         });
-        define("apply", Tuple.class, Block.class, (tuple, reduction) ->
+        define("apply", Tuple.class, BlockClosure.class, (tuple, reduction) ->
             Arrays.asList(tuple.values).stream().reduce((x, y) ->
-                reduction.cell.value(new Object[]{x, y})
+                reduction.value(new Object[]{x, y})
             ).get()
         );
-        define("map", Tuple.class, Block.class, (tuple, reduction) ->
-            new Tuple(Arrays.asList(tuple.values).stream().map(x -> reduction.cell.value(new Object[]{x})).toArray())
+        define("map", Tuple.class, BlockClosure.class, (tuple, reduction) ->
+            new Tuple(Arrays.asList(tuple.values).stream().map(x -> reduction.value(new Object[]{x})).toArray())
         );
         define("keep", Tuple.class, BigDecimal.class, (tuple, count) ->
             new Tuple(Arrays.asList(tuple.values).stream().limit(count.longValue()).toArray())
@@ -338,9 +342,9 @@ public class MainView extends JFrame implements Canvas {
         define("skip", Tuple.class, BigDecimal.class, (tuple, count) ->
             new Tuple(Arrays.asList(tuple.values).stream().skip(count.longValue()).toArray())
         );
-        define("flatMap", Tuple.class, Block.class, (tuple, mapper) ->
+        define("flatMap", Tuple.class, BlockClosure.class, (tuple, mapper) ->
                 new Tuple(Arrays.asList(tuple.values).stream().flatMap(x ->
-                    Stream.of(((Tuple) mapper.cell.value(new Object[]{x})).values)).toArray())
+                    Stream.of(((Tuple) mapper.value(new Object[]{x})).values)).toArray())
         );
     }
 
@@ -676,7 +680,7 @@ public class MainView extends JFrame implements Canvas {
                 SlotComponent currentTarget = (SlotComponent) environment.get(variableName);
 
                 Map<String, Cell> idToCellMap = new Hashtable<>();
-                Cell<Object> source = (Cell<Object>) reduceSource(ctx.expression(), idToCellMap, new ArrayList<>());
+                Cell<Object> source = (Cell<Object>) reduceSource(ctx.expression(), idToCellMap, new ArrayList<>(), 0);
                 currentTarget.propertyAssign(propertyName, source);
 
                 return super.visitPropertyAssign(ctx);
@@ -689,7 +693,7 @@ public class MainView extends JFrame implements Canvas {
                 String variableName = ctx.ID().getText();
                 CellConsumer<Object> currentTarget = (CellConsumer<Object>) environment.get(variableName);
 
-                Cell<Object> source = (Cell<Object>) reduceSource(ctx.expression(), idToCellMap, new ArrayList<>());
+                Cell<Object> source = (Cell<Object>) reduceSource(ctx.expression(), idToCellMap, new ArrayList<>(), 0);
 
                 String srcCode = ctx.getText();
 
@@ -761,9 +765,9 @@ public class MainView extends JFrame implements Canvas {
             public Void visitFunction(@NotNull LangParser.FunctionContext ctx) {
                 String functionName = ctx.ID().getText();
 
-                ArrayList<ParameterInfo> parameterTypes = new ArrayList<>();
+                ArrayList<VariableInfo> locals = new ArrayList<>();
                 if(ctx.parameters() != null)
-                    parameterTypes.addAll(ctx.parameters().ID().stream().map(x -> new ParameterInfo(Object.class, x.getText())).collect(Collectors.toList()));
+                    locals.addAll(ctx.parameters().ID().stream().map(x -> new VariableInfo(Object.class, x.getText(), 0)).collect(Collectors.toList()));
 
                 ParserRuleContext bodyTree = ctx.expression();
 
@@ -780,23 +784,14 @@ public class MainView extends JFrame implements Canvas {
 
                 //Selector selector = new Selector(functionName, parameterTypes.stream().map(x -> x.type).toArray(s -> new Class<?>[s]));
 
-                Cell<?> cellBody = reduceSource(bodyTree, new Hashtable<>(), parameterTypes);
+                Cell<?> cellBody = reduceSource(bodyTree, new Hashtable<>(), locals, 0);
                 Function<Object[], Object> body = args -> cellBody.value(args);
-                define(functionName, parameterTypes.stream().map(x -> x.type).toArray(s -> new Class<?>[s]), body);
+                Stream<VariableInfo> parameters = locals.stream().filter(x -> x.depth == 0);
+                define(functionName, parameters.map(x -> x.type).toArray(s -> new Class<?>[s]), locals.size(), body);
 
                 return null;
             }
         });
-    }
-
-    private static class ParameterInfo {
-        public final Class<?> type;
-        public final String name;
-
-        private ParameterInfo(Class<?> type, String name) {
-            this.type = type;
-            this.name = name;
-        }
     }
 
     private Cell<Object> createFunctionCall(String name, java.util.List<Cell<Object>> argumentCells) {
@@ -804,26 +799,30 @@ public class MainView extends JFrame implements Canvas {
             @Override
             public Binding consume(CellConsumer<Object> consumer) {
                 return new Binding() {
-                    private java.util.List<Object> arguments = new ArrayList<>();
+                    //private java.util.List<Object> arguments = new ArrayList<>();
+                    private Object[] arguments = new Object[argumentCells.size()];
                     private java.util.List<Binding> bindings;
 
                     {
-                        IntStream.range(0, argumentCells.size()).forEach(i -> arguments.add(null));
+                        //IntStream.range(0, argumentCells.size()).forEach(i -> arguments.add(null));
                         bindings = IntStream.range(0, argumentCells.size()).mapToObj(i -> argumentCells.get(i).consume(next -> {
-                            arguments.set(i, next);
+                            //arguments.set(i, next);
+                            arguments[i] = next;
                             update();
                         })).collect(Collectors.toList());
                     }
 
                     private void update() {
-                        if(arguments.stream().filter(x -> x == null).count() == 0) {
-                            Function<Object[], Object> function = resolve(name, arguments.toArray());
+                        if(Arrays.asList(arguments).stream().filter(x -> x == null).count() == 0) {
+                            FunctionInfo function = resolve(name, arguments);
 
                             Object next;
 
-                            if(function != null)
-                                next = function.apply(arguments.toArray(new Object[arguments.size()]));
-                            else
+                            if(function != null) {
+                                Object[] locals = new Object[function.localCount];
+                                System.arraycopy(arguments, 0, locals, 0, arguments.length);
+                                next = function.body.apply(locals);
+                            } else
                                 next = null;
 
                             consumer.next(next);
@@ -841,15 +840,16 @@ public class MainView extends JFrame implements Canvas {
 
             @Override
             public Object value(Object[] args) {
-                java.util.List<Object> arguments = argumentCells.stream().map(x -> x.value(args)).collect(Collectors.toList());
-                Class<?>[] parameterTypes = arguments.stream().map(x -> x.getClass()).toArray(s -> new Class<?>[s]);
-                Function<Object[], Object> function = resolve(name, arguments.toArray()); //functions.get(new Selector(name, parameterTypes));
+                Object[] arguments = argumentCells.stream().map(x -> x.value(args)).collect(Collectors.toList()).toArray();
+                FunctionInfo function = resolve(name, arguments);
 
                 Object next;
 
-                if(function != null)
-                    next = function.apply(arguments.toArray(new Object[arguments.size()]));
-                else
+                if(function != null) {
+                    Object[] locals = new Object[function.localCount];
+                    System.arraycopy(arguments, 0, locals, 0, arguments.length);
+                    next = function.body.apply(locals);
+                } else
                     next = null;
 
                 return next;
@@ -861,26 +861,30 @@ public class MainView extends JFrame implements Canvas {
         return createFunctionCall(operator, Arrays.asList(lhsCell, rhsCell));
     }
 
-    private Object reduce(String operator, Object lhs, Object rhs) {
-        Function<Object[], Object> function = functions.get(new Selector(operator, new Class<?>[]{lhs.getClass(), rhs.getClass()}));
+    /*private Object reduce(String operator, Object lhs, Object rhs) {
+        //Function<Object[], Object> function = functions.get(new Selector(operator, new Class<?>[]{lhs.getClass(), rhs.getClass()}));
+        FunctionInfo function = functions.get(new Selector(operator, new Class<?>[]{lhs.getClass(), rhs.getClass()}));
 
-        if(function != null)
+        if(function != null) {
+            Object[] locals = new Object[function.localCount];
+            System.arraycopy();
             return function.apply(new Object[]{lhs, rhs});
+        }
 
         return null;
-    }
+    }*/
 
-    private Cell<?> reduceSource(ParserRuleContext ctx, Map<String, Cell> idToCellMap, ArrayList<ParameterInfo> parameters) {
+    private Cell<?> reduceSource(ParserRuleContext ctx, Map<String, Cell> idToCellMap, ArrayList<VariableInfo> locals, int depth) {
         return ctx.accept(new LangBaseVisitor<Cell>() {
             @Override
             public Cell visitAddExpression(@NotNull LangParser.AddExpressionContext ctx) {
-                Cell lhs = reduceSource(ctx.mulExpression(0), idToCellMap, parameters);
+                Cell lhs = reduceSource(ctx.mulExpression(0), idToCellMap, locals, depth);
 
-                if(ctx.mulExpression().size() > 1) {
-                    for(int i = 1; i < ctx.mulExpression().size(); i++) {
-                        Cell<Object> rhsCell = (Cell<Object>)reduceSource(ctx.mulExpression(i), idToCellMap, parameters);
+                if (ctx.mulExpression().size() > 1) {
+                    for (int i = 1; i < ctx.mulExpression().size(); i++) {
+                        Cell<Object> rhsCell = (Cell<Object>) reduceSource(ctx.mulExpression(i), idToCellMap, locals, depth);
 
-                        Cell<Object> lhsCell = (Cell<Object>)lhs;
+                        Cell<Object> lhsCell = (Cell<Object>) lhs;
 
                         String operator = ctx.ADD_OP(i - 1).getText();
 
@@ -893,13 +897,13 @@ public class MainView extends JFrame implements Canvas {
 
             @Override
             public Cell visitMulExpression(@NotNull LangParser.MulExpressionContext ctx) {
-                Cell lhs = reduceSource(ctx.leafExpression(0), idToCellMap, parameters);
+                Cell lhs = reduceSource(ctx.leafExpression(0), idToCellMap, locals, depth);
 
-                if(ctx.leafExpression().size() > 1) {
-                    for(int i = 1; i < ctx.leafExpression().size(); i++) {
-                        Cell<Object> rhsCell = (Cell<Object>)reduceSource(ctx.leafExpression(i), idToCellMap, parameters);
+                if (ctx.leafExpression().size() > 1) {
+                    for (int i = 1; i < ctx.leafExpression().size(); i++) {
+                        Cell<Object> rhsCell = (Cell<Object>) reduceSource(ctx.leafExpression(i), idToCellMap, locals, depth);
 
-                        Cell<Object> lhsCell = (Cell<Object>)lhs;
+                        Cell<Object> lhsCell = (Cell<Object>) lhs;
 
                         String operator = ctx.MUL_OP(i - 1).getText();
 
@@ -914,7 +918,7 @@ public class MainView extends JFrame implements Canvas {
             public Cell visitFunctionCall(@NotNull LangParser.FunctionCallContext ctx) {
                 String name = ctx.id().ID().getText();
 
-                java.util.List<Cell<Object>> argumentCells = ctx.expression().stream().map(x -> (Cell<Object>) reduceSource(x, idToCellMap, parameters)).collect(Collectors.toList());
+                java.util.List<Cell<Object>> argumentCells = ctx.expression().stream().map(x -> (Cell<Object>) reduceSource(x, idToCellMap, locals, depth)).collect(Collectors.toList());
 
                 return createFunctionCall(name, argumentCells);
             }
@@ -927,7 +931,7 @@ public class MainView extends JFrame implements Canvas {
 
                 idToCellMap.put(id, cell);
 
-                return ((SlotComponent)cell).property(name);
+                return ((SlotComponent) cell).property(name);
             }
 
             @Override
@@ -956,7 +960,7 @@ public class MainView extends JFrame implements Canvas {
 
             @Override
             public Cell visitArray(@NotNull LangParser.ArrayContext ctx) {
-                java.util.List<Cell> valueCells = ctx.expression().stream().map(x -> reduceSource(x, idToCellMap, parameters)).collect(Collectors.toList());
+                java.util.List<Cell> valueCells = ctx.expression().stream().map(x -> reduceSource(x, idToCellMap, locals, depth)).collect(Collectors.toList());
 
                 // Could be a usage of a/the list function?
 
@@ -976,7 +980,7 @@ public class MainView extends JFrame implements Canvas {
                             }
 
                             private void update() {
-                                if(arguments.stream().filter(x -> x == null).count() == 0) {
+                                if (arguments.stream().filter(x -> x == null).count() == 0) {
                                     Object next = value(null);//valueCells.stream().map(x -> x.value(null)).toArray(s -> new Object[s]);
 
                                     consumer.next(next);
@@ -1001,16 +1005,9 @@ public class MainView extends JFrame implements Canvas {
 
             @Override
             public Cell visitBlock(@NotNull LangParser.BlockContext ctx) {
-                ArrayList<ParameterInfo> blockParameters = new ArrayList<>();
-                Cell bodyCell = reduceSource(ctx.expression(), new Hashtable<>(), blockParameters);
-
-                /*
-                TODO:
-                A block shouldn't just be a singleton but should instead be a cell that sends new versions of itself
-                when its bodyCell changes.
-                This probably requires parameterAndUsageCells (see below) to somehow implement the consume method.
-                - Perhaps some sort of parameter info should be sent? Just the parameterName perhaps
-                */
+                int localsStart = locals.size();
+                Cell bodyCell = reduceSource(ctx.expression(), idToCellMap, locals, depth + 1);
+                int localsCount = locals.size() - localsStart;
 
                 return new Cell() {
                     @Override
@@ -1020,23 +1017,22 @@ public class MainView extends JFrame implements Canvas {
 
                     @Override
                     public Object value(Object[] args) {
-                        return new Block(bodyCell);
+                        return new BlockClosure(bodyCell, args, localsStart, localsCount);
                     }
                 };
-
-                //return new Singleton(new Block(bodyCell));
             }
 
             @Override
             public Cell visitParameterAndUsage(@NotNull LangParser.ParameterAndUsageContext ctx) {
                 String parameterName = ctx.ID().getText();
+
                 int ordinal =
-                    IntStream.range(0, parameters.size())
-                        .filter(i -> parameters.get(i).name.equals(parameterName))
+                    IntStream.range(0, locals.size())
+                        .filter(i -> locals.get(i).name.equals(parameterName))
                         .findFirst()
                         .orElseGet(() -> {
-                            parameters.add(new ParameterInfo(Object.class, parameterName));
-                            return parameters.size() - 1;
+                            locals.add(new VariableInfo(Object.class, parameterName, depth));
+                            return locals.size() - 1;
                         });
 
                 return new Cell() {
@@ -1045,8 +1041,6 @@ public class MainView extends JFrame implements Canvas {
                         consumer.next(parameterName);
 
                         return () -> { };
-
-                        //return null;
                     }
 
                     @Override
@@ -1058,7 +1052,7 @@ public class MainView extends JFrame implements Canvas {
 
             @Override
             public Cell visitEmbeddedExpression(@NotNull LangParser.EmbeddedExpressionContext ctx) {
-                return reduceSource(ctx.expression(), idToCellMap, parameters);
+                return reduceSource(ctx.expression(), idToCellMap, locals, depth);
             }
         });
     }
