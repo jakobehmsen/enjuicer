@@ -3,7 +3,6 @@ package enjuicer;
 import enjuicer.lang.antlr4.LangBaseVisitor;
 import enjuicer.lang.antlr4.LangLexer;
 import enjuicer.lang.antlr4.LangParser;
-import jdk.nashorn.internal.ir.Block;
 import org.antlr.v4.runtime.ANTLRInputStream;
 import org.antlr.v4.runtime.CommonTokenStream;
 import org.antlr.v4.runtime.ParserRuleContext;
@@ -151,8 +150,9 @@ public class MainView extends JFrame implements Canvas {
     }
 
     @Override
-    public void select(String variableName, JComponent component) {
+    public void select(JComponent component) {
         JPanel marking = new JPanel(new BorderLayout());
+        String variableName = ((SlotComponent)component).getName();
         marking.setToolTipText(variableName);
         if(variableName == null)
             variableName = nextVariableName();
@@ -771,13 +771,15 @@ public class MainView extends JFrame implements Canvas {
                         }
                     });
 
+                    newElement.setName(variableName);
+
                     idToCellMap.put(variableName, newElement);
 
                     currentTarget = newElement;
                     canvasView.add(newElement);
                     canvasView.moveToFront(newElement);
 
-                    select(variableName, newElement);
+                    select(newElement);
                 } else {
                     idToCellMap.put(variableName, (Cell) currentTarget);
                 }

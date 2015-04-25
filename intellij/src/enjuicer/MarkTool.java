@@ -25,7 +25,7 @@ public class MarkTool extends AbstractTool {
             if(getCanvas().isSelected(componentOver)) {
                 getCanvas().deselect(componentOver);
             } else {
-                getCanvas().select(null, componentOver);
+                getCanvas().select(componentOver);
             }
         }
 

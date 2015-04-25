@@ -27,7 +27,7 @@ public class InspectTool extends AbstractTool {
             Description description = (Description)((CellConsumer<?>) componentOver).getDescription();
 
             description.getIdToCellMap().entrySet().forEach(e -> {
-                getCanvas().select(e.getKey(), (JComponent) e.getValue());
+                getCanvas().select((JComponent) e.getValue());
                 getCanvas().setScript(description.getSrc());
             });
         }
