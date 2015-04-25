@@ -2,7 +2,7 @@ package enjuicer;
 
 public class BlockClosure {
     private final Cell cell;
-    private final Object[] locals;
+    private Object[] locals;
     private final int localsStart;
     private final int localsCount;
 
@@ -21,5 +21,9 @@ public class BlockClosure {
     public Object value(Object[] arguments) {
         System.arraycopy(arguments, 0, locals, localsStart, localsCount);
         return cell.value(locals);
+    }
+
+    public void setLocals(Object[] locals) {
+        this.locals = locals;
     }
 }

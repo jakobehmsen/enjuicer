@@ -3,6 +3,7 @@ package enjuicer;
 import enjuicer.lang.antlr4.LangBaseVisitor;
 import enjuicer.lang.antlr4.LangLexer;
 import enjuicer.lang.antlr4.LangParser;
+import jdk.nashorn.internal.ir.Block;
 import org.antlr.v4.runtime.ANTLRInputStream;
 import org.antlr.v4.runtime.CommonTokenStream;
 import org.antlr.v4.runtime.ParserRuleContext;
@@ -831,6 +832,10 @@ public class MainView extends JFrame implements Canvas {
 
                             if(function != null) {
                                 Object[] locals = new Object[function.localCount];
+                                for(int i = 0; i < arguments.length; i++) {
+                                    if(arguments[i] instanceof BlockClosure)
+                                        ((BlockClosure)arguments[i]).setLocals(locals);
+                                }
                                 System.arraycopy(arguments, 0, locals, 0, arguments.length);
                                 next = function.body.apply(locals);
                             } else
@@ -934,12 +939,85 @@ public class MainView extends JFrame implements Canvas {
 
             @Override
             public Cell visitId(@NotNull LangParser.IdContext ctx) {
-                String id = ctx.ID().getText();
+                String parameterName = ctx.ID().getText();
+
+                // Find the last local with the parameterName
+                int ordinal =
+                    IntStream.range(0, locals.size()).boxed().sorted(((Comparator<Integer>)Integer::compare).reversed())
+                        .filter(i -> locals.get(i).name.equals(parameterName))
+                        .findFirst()
+                        .orElseGet(() -> {
+                            // Check whether is selected
+                            if(selections.stream().anyMatch(x -> x.variableName.equals(parameterName)))
+                                return -1;
+
+                            locals.add(new VariableInfo(Object.class, parameterName, depth));
+                            return locals.size() - 1;
+                        });
+
+                boolean isFromSelection = ordinal == -1;
+
+                if(isFromSelection) {
+                    Cell cell = environment.get(parameterName);
+
+                    idToCellMap.put(parameterName, cell);
+
+                    return cell;
+                }
+
+                return new Cell() {
+                    @Override
+                    public Binding consume(CellConsumer consumer) {
+                        consumer.next(parameterName);
+
+                        return () -> { };
+                    }
+
+                    @Override
+                    public Object value(Object[] args) {
+                        return args[ordinal];
+                    }
+                };
+
+
+
+
+
+                /*String id = ctx.ID().getText();
                 Cell cell = environment.get(id);
 
                 idToCellMap.put(id, cell);
 
-                return cell;
+                return cell;*/
+            }
+
+            @Override
+            public Cell visitParameterAndUsage(@NotNull LangParser.ParameterAndUsageContext ctx) {
+                String parameterName = ctx.ID().getText();
+
+                // Find the last local with the parameterName
+                int ordinal =
+                    IntStream.range(0, locals.size()).boxed().sorted(((Comparator<Integer>)Integer::compare).reversed())
+                        .filter(i -> locals.get(i).name.equals(parameterName))
+                        .findFirst()
+                        .orElseGet(() -> {
+                            locals.add(new VariableInfo(Object.class, parameterName, depth));
+                            return locals.size() - 1;
+                        });
+
+                return new Cell() {
+                    @Override
+                    public Binding consume(CellConsumer consumer) {
+                        consumer.next(parameterName);
+
+                        return () -> { };
+                    }
+
+                    @Override
+                    public Object value(Object[] args) {
+                        return args[ordinal];
+                    }
+                };
             }
 
             @Override
@@ -1010,40 +1088,14 @@ public class MainView extends JFrame implements Canvas {
                 return new Cell() {
                     @Override
                     public Binding consume(CellConsumer consumer) {
+                        // The bodyCell should be consumed in a "meta way".
+                        // I.e., it should not be evaluated but changes to its structure is to be consumed
                         return bodyCell.consume(v -> consumer.next(value(null)));
                     }
 
                     @Override
                     public Object value(Object[] args) {
                         return new BlockClosure(bodyCell, args, localsStart, localsCount);
-                    }
-                };
-            }
-
-            @Override
-            public Cell visitParameterAndUsage(@NotNull LangParser.ParameterAndUsageContext ctx) {
-                String parameterName = ctx.ID().getText();
-
-                int ordinal =
-                    IntStream.range(0, locals.size())
-                        .filter(i -> locals.get(i).name.equals(parameterName))
-                        .findFirst()
-                        .orElseGet(() -> {
-                            locals.add(new VariableInfo(Object.class, parameterName, depth));
-                            return locals.size() - 1;
-                        });
-
-                return new Cell() {
-                    @Override
-                    public Binding consume(CellConsumer consumer) {
-                        consumer.next(parameterName);
-
-                        return () -> { };
-                    }
-
-                    @Override
-                    public Object value(Object[] args) {
-                        return args[ordinal];
                     }
                 };
             }
