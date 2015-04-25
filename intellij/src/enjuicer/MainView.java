@@ -107,27 +107,6 @@ public class MainView extends JFrame implements Canvas {
 
         canvasView.add(selectionsOverlay);
         canvasView.setLayer(selectionsOverlay, JLayeredPane.DRAG_LAYER + 1);
-
-        seedIndex = 0;
-    }
-
-    private java.util.List<Character> getSeed() {
-        return IntStream.range('a', 'z' + 1).mapToObj(x -> Character.valueOf((char)x)).collect(Collectors.toList());
-    }
-
-    private int seedIndex;
-
-    private String nextVariableName() {
-        int chIndex = seedIndex % getSeed().size();
-        char ch = getSeed().get(chIndex);
-        String name = "" + ch;
-
-        for(int i = 0; i < seedIndex / getSeed().size(); i++)
-            name += ch;
-
-        seedIndex++;
-
-        return name;
     }
 
     @Override
@@ -152,10 +131,8 @@ public class MainView extends JFrame implements Canvas {
     @Override
     public void select(JComponent component) {
         JPanel marking = new JPanel(new BorderLayout());
-        String variableName = ((SlotComponent)component).getName();
+        String variableName = component.getName();
         marking.setToolTipText(variableName);
-        if(variableName == null)
-            variableName = nextVariableName();
         TitledBorder border = new TitledBorder(variableName);
         border.setTitleColor(Color.DARK_GRAY);
         border.setTitleFont(new Font(Font.MONOSPACED, Font.BOLD | Font.ITALIC, 16));
@@ -196,8 +173,6 @@ public class MainView extends JFrame implements Canvas {
         Selection selection = selections.stream().filter(s -> s.component == component).findFirst().orElseGet(() -> null);
 
         selections.remove(selection);
-        if(selections.isEmpty())
-            seedIndex = 0;
 
         canvasView.remove(selection.marking);
         environment.remove(selection.variableName);
