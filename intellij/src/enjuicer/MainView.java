@@ -12,6 +12,8 @@ import javax.swing.*;
 import javax.swing.Timer;
 import javax.swing.border.Border;
 import javax.swing.border.TitledBorder;
+import javax.swing.event.DocumentEvent;
+import javax.swing.event.DocumentListener;
 import javax.swing.text.NumberFormatter;
 import java.awt.*;
 import java.awt.event.*;
@@ -568,23 +570,52 @@ public class MainView extends JFrame implements Canvas {
     private SlotValueComponent createSlotText(Slot slot, String value) {
         return new SlotValueComponent() {
             private JTextPane component;
+            private boolean hasChanges;
 
             {
                 component = new JTextPane();
+                component.getDocument().addDocumentListener(new DocumentListener() {
+                    @Override
+                    public void insertUpdate(DocumentEvent e) {
+                        hasChanges = true;
+                    }
+
+                    @Override
+                    public void removeUpdate(DocumentEvent e) {
+                        hasChanges = true;
+                    }
+
+                    @Override
+                    public void changedUpdate(DocumentEvent e) {
+                        hasChanges = true;
+                    }
+                });
                 component.addKeyListener(new KeyAdapter() {
                     @Override
                     public void keyPressed(KeyEvent e) {
-                        if(e.isControlDown() && e.getKeyCode() == KeyEvent.VK_ENTER) {
-                            String currentValue = (String) component.getText();
-                            if (currentValue != null)
-                                slot.set(currentValue);
-                        }
+                        if(e.isControlDown() && e.getKeyCode() == KeyEvent.VK_ENTER)
+                            update();
+                    }
+                });
+                component.addFocusListener(new FocusAdapter() {
+                    @Override
+                    public void focusLost(FocusEvent e) {
+                        update();
                     }
                 });
 
                 component.setText(value);
                 slot.set(value);
                 component.setFont(new Font(Font.MONOSPACED, Font.BOLD, 16));
+            }
+
+            private void update() {
+                if(hasChanges) {
+                    String currentValue = (String) component.getText();
+                    if (currentValue != null)
+                        slot.set(currentValue);
+                    hasChanges = false;
+                }
             }
 
             @Override
