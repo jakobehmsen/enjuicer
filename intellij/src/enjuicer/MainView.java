@@ -270,10 +270,6 @@ public class MainView extends JFrame implements Canvas {
         functions.put(new Selector(name, parameterTypes), new FunctionInfo(localCount, function));
     }
 
-    /*private void defineWrapper(String name, Class<?>[] parameterTypes, Function<Object[], Function<Function<Object, SlotValueComponent>, SlotValueComponent>> wrapper) {
-        functions.put(new Selector(name, parameterTypes), args -> wrapper.apply(args));
-    }*/
-
     private <Return> void define(String name, Supplier<Return> function) {
         define(name, new Class<?>[0], args -> function.get());
     }
@@ -771,19 +767,6 @@ public class MainView extends JFrame implements Canvas {
 
                 ParserRuleContext bodyTree = ctx.expression();
 
-                /*bodyTree.accept(new DrawNMapBaseVisitor<Void>() {
-                    @Override
-                    public Void visitParameterAndUsage(@NotNull DrawNMapParser.ParameterAndUsageContext ctx) {
-                        String parameterName = ctx.ID().getText();
-                        if (parameterTypes.stream().noneMatch(x -> x.name.equals(parameterName)))
-                            parameterTypes.add(new ParameterInfo(Object.class, parameterName));
-
-                        return super.visitParameterAndUsage(ctx);
-                    }
-                });*/
-
-                //Selector selector = new Selector(functionName, parameterTypes.stream().map(x -> x.type).toArray(s -> new Class<?>[s]));
-
                 Cell<?> cellBody = reduceSource(bodyTree, new Hashtable<>(), locals, 0);
                 Function<Object[], Object> body = args -> cellBody.value(args);
                 Stream<VariableInfo> parameters = locals.stream().filter(x -> x.depth == 0);
@@ -799,14 +782,11 @@ public class MainView extends JFrame implements Canvas {
             @Override
             public Binding consume(CellConsumer<Object> consumer) {
                 return new Binding() {
-                    //private java.util.List<Object> arguments = new ArrayList<>();
                     private Object[] arguments = new Object[argumentCells.size()];
                     private java.util.List<Binding> bindings;
 
                     {
-                        //IntStream.range(0, argumentCells.size()).forEach(i -> arguments.add(null));
                         bindings = IntStream.range(0, argumentCells.size()).mapToObj(i -> argumentCells.get(i).consume(next -> {
-                            //arguments.set(i, next);
                             arguments[i] = next;
                             update();
                         })).collect(Collectors.toList());
@@ -860,19 +840,6 @@ public class MainView extends JFrame implements Canvas {
     private Cell<Object> createBinaryOperation(String operator, Cell<Object> lhsCell, Cell<Object> rhsCell) {
         return createFunctionCall(operator, Arrays.asList(lhsCell, rhsCell));
     }
-
-    /*private Object reduce(String operator, Object lhs, Object rhs) {
-        //Function<Object[], Object> function = functions.get(new Selector(operator, new Class<?>[]{lhs.getClass(), rhs.getClass()}));
-        FunctionInfo function = functions.get(new Selector(operator, new Class<?>[]{lhs.getClass(), rhs.getClass()}));
-
-        if(function != null) {
-            Object[] locals = new Object[function.localCount];
-            System.arraycopy();
-            return function.apply(new Object[]{lhs, rhs});
-        }
-
-        return null;
-    }*/
 
     private Cell<?> reduceSource(ParserRuleContext ctx, Map<String, Cell> idToCellMap, ArrayList<VariableInfo> locals, int depth) {
         return ctx.accept(new LangBaseVisitor<Cell>() {
