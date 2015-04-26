@@ -29,8 +29,8 @@ public class TextTool extends AbstractTool {
         }
 
         @Override
-        public Binding consume(CellConsumer<String> consumer) {
-            return slot.consume(consumer);
+        public Binding consume(Object[] args, CellConsumer<String> consumer) {
+            return slot.consume(args, consumer);
         }
 
         @Override

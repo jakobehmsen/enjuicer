@@ -23,7 +23,9 @@ import java.math.BigDecimal;
 import java.math.MathContext;
 import java.text.NumberFormat;
 import java.util.*;
+import java.util.List;
 import java.util.function.BiFunction;
+import java.util.function.Consumer;
 import java.util.function.Function;
 import java.util.function.Supplier;
 import java.util.stream.Collectors;
@@ -262,6 +264,32 @@ public class MainView extends JFrame implements Canvas {
 
     private <P0, P1, P2, Return> void define(String name, Class<P0> param1, Class<P1> param2, Class<P2> param3, TriFunction<P0, P1, P2, Return> function) {
         define(name, new Class<?>[]{param1, param2, param3}, args -> function.apply((P0)args[0], (P1)args[1], (P2)args[2]));
+    }
+
+    private RelationInfo resolveRelation(String name, Object[] arguments) {
+        java.util.List<RelationInfo> candidates = relations.entrySet().stream()
+            .filter(x ->
+                x.getKey().name.equals(name))
+            .filter(x ->
+                x.getKey().parameterTypes.length == arguments.length)
+            .filter(x ->
+                IntStream.range(0, arguments.length).allMatch(i ->
+                    x.getKey().parameterTypes[i].isAssignableFrom(arguments[i].getClass())))
+            .map(x -> x.getValue())
+            .collect(Collectors.toList());
+
+        if(candidates.size() > 0) {
+            // TODO: Compare candidates; select "most specific".
+            return candidates.get(0);
+        }
+
+        return null;
+    }
+
+    private Hashtable<Selector, RelationInfo> relations = new Hashtable<>();
+
+    private void defineRelation(String name, Class<?>[] parameterTypes, int localCount, Consumer<Object[]> body) {
+        relations.put(new Selector(name, parameterTypes), new RelationInfo(localCount, body));
     }
 
     public MainView(java.util.List<Tool> tools) {
@@ -569,7 +597,7 @@ public class MainView extends JFrame implements Canvas {
                 component.addKeyListener(new KeyAdapter() {
                     @Override
                     public void keyPressed(KeyEvent e) {
-                        if(e.isControlDown() && e.getKeyCode() == KeyEvent.VK_ENTER)
+                        if (e.isControlDown() && e.getKeyCode() == KeyEvent.VK_ENTER)
                             update();
                     }
                 });
@@ -671,131 +699,209 @@ public class MainView extends JFrame implements Canvas {
         };
     }
 
+    private Consumer<Object[]> parseStatement(ParserRuleContext statementCtx, ArrayList<VariableInfo> locals, int depth) {
+        return statementCtx.accept(new LangBaseVisitor<Consumer<Object[]>>() {
+            @Override
+            public Consumer<Object[]> visitPropertyAssign(@NotNull LangParser.PropertyAssignContext ctx) {
+                String targetName = ctx.target.ID().getText();
+                String propertyName = ctx.name.ID().getText();
+
+                int ordinal = localOrdinal(locals, targetName, depth);
+
+                Map<String, Cell> idToCellMap = new Hashtable<>();
+                Cell<Object> source = (Cell<Object>) reduceSource(ctx.expression(), idToCellMap, locals, 0);
+
+                boolean isFromSelection = ordinal == -1;
+
+                if(isFromSelection) {
+                    SlotComponent currentTarget = (SlotComponent) environment.get(targetName);
+
+                    return args -> currentTarget.propertyAssign(args, propertyName, source);
+                }
+
+                return args -> {
+                    Object cell = args[ordinal];
+                    ((SlotComponent)cell).propertyAssign(args, propertyName, source);
+                };
+            }
+
+            @Override
+            public Consumer<Object[]> visitAssign(@NotNull LangParser.AssignContext ctx) {
+                Map<String, Cell> idToCellMap = new Hashtable<>();
+
+                String variableName = ctx.ID().getText();
+
+                Cell<Object> source = (Cell<Object>) reduceSource(ctx.expression(), idToCellMap, locals, 0);
+                String srcCode = ctx.getText();
+
+                return args -> {
+                    CellConsumer<Object> currentTarget = (CellConsumer<Object>) environment.get(variableName);
+
+                    if(currentTarget == null) {
+                        SlotComponent newElement = new SlotComponent(new SlotValueComponentFactory() {
+                            boolean atFirst = true;
+
+                            @Override
+                            public SlotValueComponent createSlotComponentValue(JPanel wrapper, Slot slot, Object value) {
+                                if (value instanceof BigDecimal) {
+                                    SlotValueComponent svc = createSlotNumber(slot, (BigDecimal) value);
+                                    if(atFirst) {
+                                        svc.getComponent().setSize(60, 20);
+                                        svc.getComponent().setLocation(nextOutX, nextOutY);
+
+                                        updateOuts(svc.getComponent().getWidth(), svc.getComponent().getHeight());
+                                    }
+                                    atFirst = false;
+                                    return svc;
+                                } else if (value instanceof String) {
+                                    SlotValueComponent svc = createSlotText(slot, (String) value);
+                                    if(atFirst) {
+                                        svc.getComponent().setSize(60, 20);
+                                        svc.getComponent().setLocation(nextOutX, nextOutY);
+
+                                        updateOuts(svc.getComponent().getWidth(), svc.getComponent().getHeight());
+                                    }
+                                    atFirst = false;
+                                    return svc;
+                                } else if (value instanceof Line) {
+                                    atFirst = false;
+                                    return createSlotLine(slot, (Line) value);
+                                } else if(value instanceof Function) {
+                                    return ((Function<Function<Object, SlotValueComponent>, SlotValueComponent>)value).apply(v ->
+                                        createSlotComponentValue(wrapper, slot, v));
+                                } else {
+                                    SlotValueComponent svc = createSlotDefault(slot, value);
+                                    if(atFirst) {
+                                        svc.getComponent().setSize(60, 20);
+                                        svc.getComponent().setLocation(nextOutX, nextOutY);
+
+                                        updateOuts(svc.getComponent().getWidth(), svc.getComponent().getHeight());
+                                    }
+                                    atFirst = false;
+                                    return svc;
+                                }
+                            }
+                        });
+
+                        newElement.setName(variableName);
+
+                        idToCellMap.put(variableName, newElement);
+
+                        currentTarget = newElement;
+                        canvasView.add(newElement);
+                        canvasView.moveToFront(newElement);
+
+                        select(newElement);
+                    } else {
+                        idToCellMap.put(variableName, (Cell) currentTarget);
+                    }
+
+                    Binding binding = source.consume(args, currentTarget);
+                    currentTarget.setBinding(binding);
+                    currentTarget.setDescription(new Description(idToCellMap, srcCode));
+                };
+            }
+
+            @Override
+            public Consumer<Object[]> visitFunction(@NotNull LangParser.FunctionContext ctx) {
+                String functionName = ctx.ID().getText();
+
+                ArrayList<VariableInfo> functionLocals = new ArrayList<>();
+                if(ctx.parameters() != null)
+                    functionLocals.addAll(ctx.parameters().ID().stream().map(x -> new VariableInfo(Object.class, x.getText(), 0)).collect(Collectors.toList()));
+
+                ParserRuleContext bodyTree = ctx.expression();
+
+                Cell<?> cellBody = reduceSource(bodyTree, new Hashtable<>(), functionLocals, 0);
+                Function<Object[], Object> body = args -> cellBody.value(args);
+                Stream<VariableInfo> parameters = functionLocals.stream().filter(x -> x.depth == 0);
+                Class<?>[] parameterTypes = parameters.map(x -> x.type).toArray(s -> new Class<?>[s]);
+
+                return args ->
+                    define(functionName, parameterTypes, functionLocals.size(), body);
+            }
+
+            @Override
+            public Consumer<Object[]> visitRelation(@NotNull LangParser.RelationContext ctx) {
+                String relationName = ctx.ID().getText();
+
+                ArrayList<VariableInfo> relationLocals = new ArrayList<>();
+                if(ctx.parameters() != null)
+                    relationLocals.addAll(ctx.parameters().ID().stream().map(x -> new VariableInfo(Object.class, x.getText(), 0)).collect(Collectors.toList()));
+
+                List<Consumer<Object[]>> statements = ctx.statement().stream().map(x -> parseStatement(x, relationLocals, 0)).collect(Collectors.toList());
+                Consumer<Object[]> body = args ->
+                    statements.forEach(x ->
+                        x.accept(args));
+                Stream<VariableInfo> parameters = relationLocals.stream().filter(x -> x.depth == 0);
+                Class<?>[] parameterTypes = parameters.map(x -> x.type).toArray(s -> new Class<?>[s]);
+
+                return args ->
+                    defineRelation(relationName, parameterTypes, relationLocals.size(), body);
+            }
+
+            @Override
+            public Consumer<Object[]> visitRelationCall(@NotNull LangParser.RelationCallContext ctx) {
+                String relationName = ctx.name.getText();
+
+                // Each argument is assumed to be a cell
+                // First id is assumed to be the name
+                Function<Object[], Object>[] argumentSources = (Function<Object[], Object>[])ctx.id().stream().skip(1).map(x -> {
+                    String argumentName = x.ID().getText();
+                    int ordinal = localOrdinal(locals, argumentName, depth);
+
+                    boolean isFromSelection = ordinal == -1;
+
+                    if(isFromSelection) {
+                        SlotComponent currentTarget = (SlotComponent) environment.get(argumentName);
+
+                        return (Function<Object[], Object>) objects -> currentTarget;
+
+                    } else {
+                        return new Function<Object[], Object>() {
+                            @Override
+                            public Object apply(Object[] args) {
+                                return args[ordinal];
+                            }
+                        };
+                    }
+                }).toArray(s -> new Function[s]);
+
+                return args -> {
+                    Object[] arguments = Arrays.asList(argumentSources).stream().map(x -> x.apply(args)).toArray();
+                    RelationInfo relation = resolveRelation(relationName, arguments);
+
+                    if(relation != null) {
+                        Object[] locals = new Object[relation.localCount];
+                        for(int i = 0; i < arguments.length; i++) {
+                            if(arguments[i] instanceof BlockClosure)
+                                ((BlockClosure)arguments[i]).setLocals(locals);
+                        }
+                        System.arraycopy(arguments, 0, locals, 0, arguments.length);
+                        relation.body.accept(locals);
+                    }
+                };
+            }
+        });
+    }
+
     private void evaluateProgram(LangParser.ProgramContext programCtx) {
         nextOutX = 30;
         nextOutY = 30;
 
-        programCtx.accept(new LangBaseVisitor<Void>() {
-            @Override
-            public Void visitPropertyAssign(@NotNull LangParser.PropertyAssignContext ctx) {
-                String variableName = ctx.target.ID().getText();
-                String propertyName = ctx.name.ID().getText();
-                SlotComponent currentTarget = (SlotComponent) environment.get(variableName);
-
-                Map<String, Cell> idToCellMap = new Hashtable<>();
-                Cell<Object> source = (Cell<Object>) reduceSource(ctx.expression(), idToCellMap, new ArrayList<>(), 0);
-                currentTarget.propertyAssign(propertyName, source);
-
-                return super.visitPropertyAssign(ctx);
-            }
-
-            @Override
-            public Void visitAssign(@NotNull LangParser.AssignContext ctx) {
-                Map<String, Cell> idToCellMap = new Hashtable<>();
-
-                String variableName = ctx.ID().getText();
-                CellConsumer<Object> currentTarget = (CellConsumer<Object>) environment.get(variableName);
-
-                Cell<Object> source = (Cell<Object>) reduceSource(ctx.expression(), idToCellMap, new ArrayList<>(), 0);
-
-                String srcCode = ctx.getText();
-
-                if(currentTarget == null) {
-                    SlotComponent newElement = new SlotComponent(new SlotValueComponentFactory() {
-                        boolean atFirst = true;
-
-                        @Override
-                        public SlotValueComponent createSlotComponentValue(JPanel wrapper, Slot slot, Object value) {
-                            if (value instanceof BigDecimal) {
-                                SlotValueComponent svc = createSlotNumber(slot, (BigDecimal) value);
-                                if(atFirst) {
-                                    svc.getComponent().setSize(60, 20);
-                                    svc.getComponent().setLocation(nextOutX, nextOutY);
-
-                                    updateOuts(svc.getComponent().getWidth(), svc.getComponent().getHeight());
-                                }
-                                atFirst = false;
-                                return svc;
-                            } else if (value instanceof String) {
-                                SlotValueComponent svc = createSlotText(slot, (String) value);
-                                if(atFirst) {
-                                    svc.getComponent().setSize(60, 20);
-                                    svc.getComponent().setLocation(nextOutX, nextOutY);
-
-                                    updateOuts(svc.getComponent().getWidth(), svc.getComponent().getHeight());
-                                }
-                                atFirst = false;
-                                return svc;
-                            } else if (value instanceof Line) {
-                                atFirst = false;
-                                return createSlotLine(slot, (Line) value);
-                            } else if(value instanceof Function) {
-                                return ((Function<Function<Object, SlotValueComponent>, SlotValueComponent>)value).apply(v ->
-                                    createSlotComponentValue(wrapper, slot, v));
-                            } else {
-                                SlotValueComponent svc = createSlotDefault(slot, value);
-                                if(atFirst) {
-                                    svc.getComponent().setSize(60, 20);
-                                    svc.getComponent().setLocation(nextOutX, nextOutY);
-
-                                    updateOuts(svc.getComponent().getWidth(), svc.getComponent().getHeight());
-                                }
-                                atFirst = false;
-                                return svc;
-                            }
-                        }
-                    });
-
-                    newElement.setName(variableName);
-
-                    idToCellMap.put(variableName, newElement);
-
-                    currentTarget = newElement;
-                    canvasView.add(newElement);
-                    canvasView.moveToFront(newElement);
-
-                    select(newElement);
-                } else {
-                    idToCellMap.put(variableName, (Cell) currentTarget);
-                }
-
-                Binding binding = source.consume(currentTarget);
-                currentTarget.setBinding(binding);
-                currentTarget.setDescription(new Description(idToCellMap, srcCode));
-
-                return null;
-            }
-
-            @Override
-            public Void visitFunction(@NotNull LangParser.FunctionContext ctx) {
-                String functionName = ctx.ID().getText();
-
-                ArrayList<VariableInfo> locals = new ArrayList<>();
-                if(ctx.parameters() != null)
-                    locals.addAll(ctx.parameters().ID().stream().map(x -> new VariableInfo(Object.class, x.getText(), 0)).collect(Collectors.toList()));
-
-                ParserRuleContext bodyTree = ctx.expression();
-
-                Cell<?> cellBody = reduceSource(bodyTree, new Hashtable<>(), locals, 0);
-                Function<Object[], Object> body = args -> cellBody.value(args);
-                Stream<VariableInfo> parameters = locals.stream().filter(x -> x.depth == 0);
-                define(functionName, parameters.map(x -> x.type).toArray(s -> new Class<?>[s]), locals.size(), body);
-
-                return null;
-            }
-        });
+        programCtx.statement().stream().map(x -> parseStatement(x, new ArrayList<>(), 0)).forEach(x -> x.accept(new Object[0]));
     }
 
     private Cell<Object> createFunctionCall(String name, java.util.List<Cell<Object>> argumentCells) {
         return new Cell<Object>() {
             @Override
-            public Binding consume(CellConsumer<Object> consumer) {
+            public Binding consume(Object[] args, CellConsumer<Object> consumer) {
                 return new Binding() {
                     private Object[] arguments = new Object[argumentCells.size()];
                     private java.util.List<Binding> bindings;
 
                     {
-                        bindings = IntStream.range(0, argumentCells.size()).mapToObj(i -> argumentCells.get(i).consume(next -> {
+                        bindings = IntStream.range(0, argumentCells.size()).mapToObj(i -> argumentCells.get(i).consume(args, next -> {
                             arguments[i] = next;
                             update();
                         })).collect(Collectors.toList());
@@ -905,36 +1011,55 @@ public class MainView extends JFrame implements Canvas {
 
             @Override
             public Cell visitProperty(@NotNull LangParser.PropertyContext ctx) {
-                String name = ctx.name.ID().getText();
-                String id = ctx.target.ID().getText();
-                Cell cell = environment.get(id);
+                String propertyName = ctx.name.ID().getText();
+                String targetName = ctx.target.ID().getText();
 
-                idToCellMap.put(id, cell);
+                int ordinal = localOrdinal(locals, targetName, depth);
 
-                return ((SlotComponent) cell).property(name);
+                boolean isFromSelection = ordinal == -1;
+
+                if (isFromSelection) {
+                    Cell cell = environment.get(targetName);
+
+                    if (idToCellMap == null || targetName == null || cell == null)
+                        new String();
+
+                    idToCellMap.put(targetName, cell);
+
+                    return ((SlotComponent) cell).property(propertyName);
+                }
+
+                return new Cell() {
+                    @Override
+                    public Binding consume(Object[] args, CellConsumer consumer) {
+                        //consumer.next(targetName + "." + propertyName);
+
+                        //consumer.next(value(args));
+
+                        Object cell = args[ordinal];
+                        return ((SlotComponent) cell).property(propertyName).consume(args, consumer);
+
+                        /*return () -> {
+                        };*/
+                    }
+
+                    @Override
+                    public Object value(Object[] args) {
+                        Object cell = args[ordinal];
+                        return ((SlotComponent) cell).property(propertyName).value(args);
+                    }
+                };
             }
 
             @Override
             public Cell visitId(@NotNull LangParser.IdContext ctx) {
                 String parameterName = ctx.ID().getText();
 
-                // Find the last local with the parameterName
-                int ordinal =
-                    IntStream.range(0, locals.size()).boxed().sorted(((Comparator<Integer>)Integer::compare).reversed())
-                        .filter(i -> locals.get(i).name.equals(parameterName))
-                        .findFirst()
-                        .orElseGet(() -> {
-                            // Check whether is selected
-                            if(selections.stream().anyMatch(x -> x.variableName.equals(parameterName)))
-                                return -1;
-
-                            locals.add(new VariableInfo(Object.class, parameterName, depth));
-                            return locals.size() - 1;
-                        });
+                int ordinal = localOrdinal(locals, parameterName, depth);
 
                 boolean isFromSelection = ordinal == -1;
 
-                if(isFromSelection) {
+                if (isFromSelection) {
                     Cell cell = environment.get(parameterName);
 
                     idToCellMap.put(parameterName, cell);
@@ -944,10 +1069,12 @@ public class MainView extends JFrame implements Canvas {
 
                 return new Cell() {
                     @Override
-                    public Binding consume(CellConsumer consumer) {
-                        consumer.next(parameterName);
+                    public Binding consume(Object[] args, CellConsumer consumer) {
+                        //consumer.next(parameterName);
+                        consumer.next(value(args));
 
-                        return () -> { };
+                        return () -> {
+                        };
                     }
 
                     @Override
@@ -979,14 +1106,14 @@ public class MainView extends JFrame implements Canvas {
 
                 return new Cell<Object>() {
                     @Override
-                    public Binding consume(CellConsumer<Object> consumer) {
+                    public Binding consume(Object[] args, CellConsumer<Object> consumer) {
                         return new Binding() {
                             private java.util.List<Object> arguments = new ArrayList<>();
                             private java.util.List<Binding> bindings;
 
                             {
                                 IntStream.range(0, valueCells.size()).forEach(i -> arguments.add(null));
-                                bindings = IntStream.range(0, valueCells.size()).mapToObj(i -> valueCells.get(i).consume(next -> {
+                                bindings = IntStream.range(0, valueCells.size()).mapToObj(i -> valueCells.get(i).consume(args, next -> {
                                     arguments.set(i, next);
                                     update();
                                 })).collect(Collectors.toList());
@@ -1024,10 +1151,10 @@ public class MainView extends JFrame implements Canvas {
 
                 return new Cell() {
                     @Override
-                    public Binding consume(CellConsumer consumer) {
+                    public Binding consume(Object[] args, CellConsumer consumer) {
                         // The bodyCell should be consumed in a "meta way".
                         // I.e., it should not be evaluated but changes to its structure is to be consumed
-                        return bodyCell.consume(v -> consumer.next(value(null)));
+                        return bodyCell.consume(args, v -> consumer.next(value(null)));
                     }
 
                     @Override
@@ -1042,5 +1169,20 @@ public class MainView extends JFrame implements Canvas {
                 return reduceSource(ctx.expression(), idToCellMap, locals, depth);
             }
         });
+    }
+
+    private int localOrdinal(ArrayList<VariableInfo> locals, String name, int depth) {
+        // Find the last local with the parameterName
+        return IntStream.range(0, locals.size()).boxed().sorted(((Comparator<Integer>)Integer::compare).reversed())
+            .filter(i -> locals.get(i).name.equals(name))
+            .findFirst()
+            .orElseGet(() -> {
+                // Check whether is selected
+                if (selections.stream().anyMatch(x -> x.variableName.equals(name)))
+                    return -1;
+
+                locals.add(new VariableInfo(Object.class, name, depth));
+                return locals.size() - 1;
+            });
     }
 }

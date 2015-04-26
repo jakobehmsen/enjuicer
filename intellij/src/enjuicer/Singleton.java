@@ -8,7 +8,7 @@ public class Singleton<T> implements Cell<T> {
     }
 
     @Override
-    public Binding consume(CellConsumer<T> consumer) {
+    public Binding consume(Object[] args, CellConsumer<T> consumer) {
         consumer.next(value);
 
         return () -> { };

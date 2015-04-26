@@ -16,7 +16,7 @@ public class Slot<T> implements Cell<T>, CellConsumer<T> {
     }
 
     @Override
-    public Binding consume(CellConsumer<T> consumer) {
+    public Binding consume(Object[] args, CellConsumer<T> consumer) {
         consumer.next(value(null));
         consumers.add(consumer);
 

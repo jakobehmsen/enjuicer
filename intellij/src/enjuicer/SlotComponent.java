@@ -27,8 +27,8 @@ public class SlotComponent extends JPanel implements Cell<Object>, CellConsumer<
     }
 
     @Override
-    public Binding consume(CellConsumer<Object> consumer) {
-        return slot.consume(consumer);
+    public Binding consume(Object[] args, CellConsumer<Object> consumer) {
+        return slot.consume(args, consumer);
     }
 
     @Override
@@ -96,14 +96,14 @@ public class SlotComponent extends JPanel implements Cell<Object>, CellConsumer<
         return null;
     }
 
-    public void propertyAssign(String name, Cell<Object> valueCell) {
+    public void propertyAssign(Object[] args, String name, Cell<Object> valueCell) {
         Binding binding = propertyBindings.get(name);
 
         if(binding != null)
             binding.remove();
 
         Consumer propertyUpdater = propertyUpdater(name);
-        binding = valueCell.consume(value -> propertyUpdater.accept(value));
+        binding = valueCell.consume(args, value -> propertyUpdater.accept(value));
 
         propertyBindings.put(name, binding);
     }
@@ -112,7 +112,7 @@ public class SlotComponent extends JPanel implements Cell<Object>, CellConsumer<
         ArrayList<CellConsumer> consumers = new ArrayList<>();
 
         @Override
-        public Binding consume(CellConsumer consumer) {
+        public Binding consume(Object[] args, CellConsumer consumer) {
             consumers.add(consumer);
             consumer.next(value(null));
             return () -> {

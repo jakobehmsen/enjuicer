@@ -5,7 +5,7 @@ statement: propertyAssign | assign | function | relation | relationCall;
 assign: ID ASSIGN_OP expression;
 function: ID DEFINE_OP parameters? expression;
 relation: ID DEFINE_OP parameters? (statement | OPEN_BRA statement+ CLOSE_BRA);
-relationCall: id OPEN_PAR (id (COMMA id)*)? CLOSE_PAR;
+relationCall: name=id OPEN_PAR (id (COMMA id)*)? CLOSE_PAR;
 parameters: PIPE ID* PIPE;
 expression: addExpression;
 addExpression: mulExpression (ADD_OP mulExpression)*;
