@@ -889,7 +889,12 @@ public class MainView extends JFrame implements Canvas {
         nextOutX = 30;
         nextOutY = 30;
 
-        programCtx.statement().stream().map(x -> parseStatement(x, new ArrayList<>(), 0)).forEach(x -> x.accept(new Object[0]));
+        programCtx.statement().stream().forEach(x -> {
+            ArrayList<VariableInfo> locals = new ArrayList<VariableInfo>();
+            Consumer<Object[]> statement = parseStatement(x, locals, 0);
+            Object[] args = new Object[locals.size()];
+            statement.accept(args);
+        });
     }
 
     private Cell<Object> createFunctionCall(String name, java.util.List<Cell<Object>> argumentCells) {
@@ -1146,7 +1151,12 @@ public class MainView extends JFrame implements Canvas {
             @Override
             public Cell visitBlock(@NotNull LangParser.BlockContext ctx) {
                 int localsStart = locals.size();
-                Cell bodyCell = reduceSource(ctx.expression(), idToCellMap, locals, depth + 1);
+
+                int blockDepth = depth + 1;
+                if(ctx.parameters() != null)
+                    locals.addAll(ctx.parameters().ID().stream().map(x -> new VariableInfo(Object.class, x.getText(), blockDepth)).collect(Collectors.toList()));
+
+                Cell bodyCell = reduceSource(ctx.expression(), idToCellMap, locals, blockDepth);
                 int localsCount = locals.size() - localsStart;
 
                 return new Cell() {
@@ -1154,7 +1164,8 @@ public class MainView extends JFrame implements Canvas {
                     public Binding consume(Object[] args, CellConsumer consumer) {
                         // The bodyCell should be consumed in a "meta way".
                         // I.e., it should not be evaluated but changes to its structure is to be consumed
-                        return bodyCell.consume(args, v -> consumer.next(value(null)));
+                        return bodyCell.consume(args, v ->
+                            consumer.next(value(null)));
                     }
 
                     @Override
