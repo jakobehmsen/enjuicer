@@ -70,7 +70,8 @@ public class LineTool extends AbstractTool {
 
         @Override
         public enjuicer.Line value(Object[] args) {
-            return slot.value(args);
+            //return slot.value(args);
+            return null;
         }
 
         @Override

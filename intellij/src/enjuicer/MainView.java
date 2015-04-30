@@ -220,8 +220,57 @@ public class MainView extends JFrame implements Canvas {
         }
     }
 
-    private FunctionInfo resolve(String name, Object[] arguments) {
-        java.util.List<FunctionInfo> candidates = functions.entrySet().stream()
+    private static class GenericSelector {
+        private final String name;
+        private final int arity;
+
+        private GenericSelector(String name, int arity) {
+            this.name = name;
+            this.arity = arity;
+        }
+
+        @Override
+        public int hashCode() {
+            return name.hashCode() * arity;
+        }
+
+        @Override
+        public boolean equals(Object obj) {
+            if(obj instanceof GenericSelector) {
+                GenericSelector objSelector = (GenericSelector)obj;
+                return this.name.equals(objSelector.name) &&
+                    this.arity == objSelector.arity;
+            }
+
+            return false;
+        }
+    }
+
+    private static class SpecificSelector {
+        private final Class<?>[] parameterTypes;
+
+        private SpecificSelector(Class<?>[] parameterTypes) {
+            this.parameterTypes = parameterTypes;
+        }
+
+        @Override
+        public int hashCode() {
+            return Arrays.hashCode(parameterTypes);
+        }
+
+        @Override
+        public boolean equals(Object obj) {
+            if(obj instanceof SpecificSelector) {
+                SpecificSelector objSelector = (SpecificSelector)obj;
+                return Arrays.equals(this.parameterTypes, objSelector.parameterTypes);
+            }
+
+            return false;
+        }
+    }
+
+    /*private FunctionInfo resolve(String name, Object[] arguments) {
+        java.util.List<FunctionInfo> candidates = genericFunctions.entrySet().stream()
             .filter(x ->
                 x.getKey().name.equals(name))
             .filter(x ->
@@ -238,16 +287,91 @@ public class MainView extends JFrame implements Canvas {
         }
 
         return null;
+    }*/
+
+    //private Hashtable<Selector, FunctionInfo> genericFunctions = new Hashtable<>();
+    private Hashtable<GenericSelector, FunctionBindingCell> genericFunctions = new Hashtable<>();
+
+    private static class FunctionBindingCell implements Cell<Map<SpecificSelector, FunctionInfo>> {
+        private Hashtable<SpecificSelector, Binding> functionDefBindings = new Hashtable<>();
+        private Hashtable<SpecificSelector, FunctionCellInfo> functionCells = new Hashtable<>();
+        private Hashtable<SpecificSelector, FunctionInfo> functions = new Hashtable<>();
+        private ArrayList<CellConsumer<Map<SpecificSelector, FunctionInfo>>> consumers = new ArrayList<>();
+
+        public void define(Class<?>[] parameterTypes, FunctionCellInfo functionCell) {
+            SpecificSelector selector = new SpecificSelector(parameterTypes);
+            Binding existingFunctionDefBinding = functionDefBindings.get(selector);
+            if(existingFunctionDefBinding != null)
+                existingFunctionDefBinding.remove();
+
+            functionCells.put(selector, functionCell);
+            Binding functionDefBinding = functionCell.body.consume(null, x -> {
+                functions.put(selector, new FunctionInfo(functionCell.localCount, x));
+                update();
+            });
+            functionDefBindings.put(selector, functionDefBinding);
+            update();
+        }
+
+        private void update() {
+            consumers.forEach(x -> x.next((Map<SpecificSelector, FunctionInfo>)functions.clone()));
+        }
+
+        @Override
+        public Binding consume(Object[] args, CellConsumer<Map<SpecificSelector, FunctionInfo>> consumer) {
+            consumers.add(consumer);
+
+            consumer.next(functions);
+
+            return () -> consumers.remove(consumer);
+        }
+
+        public static FunctionInfo resolve(Map<SpecificSelector, FunctionInfo> functions, Class<?>[] parameterTypes) {
+            java.util.List<FunctionInfo> candidates = functions.entrySet().stream()
+                .filter(x ->
+                    x.getKey().parameterTypes.length == parameterTypes.length)
+                .filter(x ->
+                    IntStream.range(0, parameterTypes.length).allMatch(i ->
+                        x.getKey().parameterTypes[i].isAssignableFrom(parameterTypes[i])))
+                .map(x -> x.getValue())
+                .collect(Collectors.toList());
+
+            if(candidates.size() > 0) {
+                // TODO: Compare candidates; select "most specific".
+                return candidates.get(0);
+            }
+
+            return null;
+        }
+
+        @Override
+        public Map<SpecificSelector, FunctionInfo> value(Object[] args) {
+            return null;
+        }
     }
 
-    private Hashtable<Selector, FunctionInfo> functions = new Hashtable<>();
+    private FunctionBindingCell getFunction(GenericSelector selector) {
+        FunctionBindingCell functionBinding = genericFunctions.get(selector);
+        if(functionBinding == null) {
+            functionBinding = new FunctionBindingCell();
+            genericFunctions.put(selector, functionBinding);
+        }
+        return functionBinding;
+    }
 
     private void define(String name, Class<?>[] parameterTypes, Function<Object[], Object> function) {
         define(name, parameterTypes, parameterTypes.length, function);
     }
 
+    private void define(String name, Class<?>[] parameterTypes, int localCount, Cell<Function<Object[], Object>> function) {
+        FunctionBindingCell functionBinding = getFunction(new GenericSelector(name, parameterTypes.length));
+        functionBinding.define(parameterTypes, new FunctionCellInfo(localCount, function));
+        //genericFunctions.put(new Selector(name, parameterTypes), new FunctionInfo(localCount, function));
+    }
+
     private void define(String name, Class<?>[] parameterTypes, int localCount, Function<Object[], Object> function) {
-        functions.put(new Selector(name, parameterTypes), new FunctionInfo(localCount, function));
+        define(name, parameterTypes, localCount, new Singleton<Function<Object[], Object>>(function));
+        //genericFunctions.put(new Selector(name, parameterTypes), new FunctionInfo(localCount, function));
     }
 
     private <Return> void define(String name, Supplier<Return> function) {
@@ -345,8 +469,8 @@ public class MainView extends JFrame implements Canvas {
             new Tuple(Arrays.asList(tuple.values).stream().skip(count.longValue()).toArray())
         );
         define("flatMap", Tuple.class, BlockClosure.class, (tuple, mapper) ->
-                new Tuple(Arrays.asList(tuple.values).stream().flatMap(x ->
-                    Stream.of(((Tuple) mapper.value(new Object[]{x})).values)).toArray())
+            new Tuple(Arrays.asList(tuple.values).stream().flatMap(x ->
+                Stream.of(((Tuple) mapper.value(new Object[]{x})).values)).toArray())
         );
     }
 
@@ -709,19 +833,23 @@ public class MainView extends JFrame implements Canvas {
                 int ordinal = localOrdinal(locals, targetName, depth);
 
                 Map<String, Cell> idToCellMap = new Hashtable<>();
-                Cell<Object> source = (Cell<Object>) reduceSource(ctx.expression(), idToCellMap, locals, 0);
+                //Cell<Object> source = (Cell<Object>) reduceSource(ctx.expression(), idToCellMap, locals, 0);
+                Cell<Function<Object[], Object>> source = reduceExpressionCell(ctx.expression(), idToCellMap, locals, 0);
 
                 boolean isFromSelection = ordinal == -1;
 
-                if(isFromSelection) {
+                if (isFromSelection) {
                     SlotComponent currentTarget = (SlotComponent) environment.get(targetName);
 
-                    return args -> currentTarget.propertyAssign(args, propertyName, source);
+                    return args -> {
+
+                        currentTarget.propertyAssign(args, propertyName, source);
+                    };
                 }
 
                 return args -> {
                     Object cell = args[ordinal];
-                    ((SlotComponent)cell).propertyAssign(args, propertyName, source);
+                    ((SlotComponent) cell).propertyAssign(args, propertyName, source);
                 };
             }
 
@@ -731,13 +859,15 @@ public class MainView extends JFrame implements Canvas {
 
                 String variableName = ctx.ID().getText();
 
-                Cell<Object> source = (Cell<Object>) reduceSource(ctx.expression(), idToCellMap, locals, 0);
+                //Cell<Object> source = (Cell<Object>) reduceSource(ctx.expression(), idToCellMap, locals, 0);
+                Cell<Function<Object[], Object>> source = (Cell<Function<Object[], Object>>) reduceExpressionCell(ctx.expression(), idToCellMap, locals, 0);
                 String srcCode = ctx.getText();
 
                 return args -> {
-                    CellConsumer<Object> currentTarget = (CellConsumer<Object>) environment.get(variableName);
+                    CellConsumer<Object> environmentCell = (CellConsumer<Object>) environment.get(variableName);
+                    CellConsumer<Object> currentTarget;
 
-                    if(currentTarget == null) {
+                    if (environmentCell == null) {
                         SlotComponent newElement = new SlotComponent(new SlotValueComponentFactory() {
                             boolean atFirst = true;
 
@@ -745,7 +875,7 @@ public class MainView extends JFrame implements Canvas {
                             public SlotValueComponent createSlotComponentValue(JPanel wrapper, Slot slot, Object value) {
                                 if (value instanceof BigDecimal) {
                                     SlotValueComponent svc = createSlotNumber(slot, (BigDecimal) value);
-                                    if(atFirst) {
+                                    if (atFirst) {
                                         svc.getComponent().setSize(60, 20);
                                         svc.getComponent().setLocation(nextOutX, nextOutY);
 
@@ -755,7 +885,7 @@ public class MainView extends JFrame implements Canvas {
                                     return svc;
                                 } else if (value instanceof String) {
                                     SlotValueComponent svc = createSlotText(slot, (String) value);
-                                    if(atFirst) {
+                                    if (atFirst) {
                                         svc.getComponent().setSize(60, 20);
                                         svc.getComponent().setLocation(nextOutX, nextOutY);
 
@@ -766,12 +896,12 @@ public class MainView extends JFrame implements Canvas {
                                 } else if (value instanceof Line) {
                                     atFirst = false;
                                     return createSlotLine(slot, (Line) value);
-                                } else if(value instanceof Function) {
-                                    return ((Function<Function<Object, SlotValueComponent>, SlotValueComponent>)value).apply(v ->
+                                } else if (value instanceof Function) {
+                                    return ((Function<Function<Object, SlotValueComponent>, SlotValueComponent>) value).apply(v ->
                                         createSlotComponentValue(wrapper, slot, v));
                                 } else {
                                     SlotValueComponent svc = createSlotDefault(slot, value);
-                                    if(atFirst) {
+                                    if (atFirst) {
                                         svc.getComponent().setSize(60, 20);
                                         svc.getComponent().setLocation(nextOutX, nextOutY);
 
@@ -793,10 +923,14 @@ public class MainView extends JFrame implements Canvas {
 
                         select(newElement);
                     } else {
+                        currentTarget = environmentCell;
                         idToCellMap.put(variableName, (Cell) currentTarget);
                     }
 
-                    Binding binding = source.consume(args, currentTarget);
+                    Binding binding = source.consume(args, expression -> {
+                        Object result = expression.apply(new Object[0]);
+                        currentTarget.next(result);
+                    });
                     currentTarget.setBinding(binding);
                     currentTarget.setDescription(new Description(idToCellMap, srcCode));
                 };
@@ -807,18 +941,29 @@ public class MainView extends JFrame implements Canvas {
                 String functionName = ctx.ID().getText();
 
                 ArrayList<VariableInfo> functionLocals = new ArrayList<>();
-                if(ctx.parameters() != null)
+                if (ctx.parameters() != null)
                     functionLocals.addAll(ctx.parameters().ID().stream().map(x -> new VariableInfo(Object.class, x.getText(), 0)).collect(Collectors.toList()));
 
                 ParserRuleContext bodyTree = ctx.expression();
 
-                Cell<?> cellBody = reduceSource(bodyTree, new Hashtable<>(), functionLocals, 0);
-                Function<Object[], Object> body = args -> cellBody.value(args);
+                //Cell<?> cellBody = reduceSource(bodyTree, new Hashtable<>(), functionLocals, 0);
+                Cell<Function<Object[], Object>> cellBody = reduceExpressionCell(bodyTree, new Hashtable<>(), functionLocals, 0);
+                //Function<Object[], Object> body = args -> cellBody.value(args);
                 Stream<VariableInfo> parameters = functionLocals.stream().filter(x -> x.depth == 0);
                 Class<?>[] parameterTypes = parameters.map(x -> x.type).toArray(s -> new Class<?>[s]);
 
+                /*
+                Function binding cells:
+                A function binding should be a cell itself which supplies versions of itself
+                A function binding relate a name and a parameter affinity (not their types)
+                - thus, a function binding is a provider of (possibly empty) sets of parameter sequence and their bodies/behaviors
+                - a function call consumes function binding corresponding to its name and parameter affinity
+                    - the body resolution is postponed till all arguments have been consumed and a non-empty set is provided
+                      by the function binding being consumed
+                */
+
                 return args ->
-                    define(functionName, parameterTypes, functionLocals.size(), body);
+                    define(functionName, parameterTypes, functionLocals.size(), cellBody);
             }
 
             @Override
@@ -826,7 +971,7 @@ public class MainView extends JFrame implements Canvas {
                 String relationName = ctx.ID().getText();
 
                 ArrayList<VariableInfo> relationLocals = new ArrayList<>();
-                if(ctx.parameters() != null)
+                if (ctx.parameters() != null)
                     relationLocals.addAll(ctx.parameters().ID().stream().map(x -> new VariableInfo(Object.class, x.getText(), 0)).collect(Collectors.toList()));
 
                 List<Consumer<Object[]>> statements = ctx.statement().stream().map(x -> parseStatement(x, relationLocals, 0)).collect(Collectors.toList());
@@ -846,13 +991,13 @@ public class MainView extends JFrame implements Canvas {
 
                 // Each argument is assumed to be a cell
                 // First id is assumed to be the name
-                Function<Object[], Object>[] argumentSources = (Function<Object[], Object>[])ctx.id().stream().skip(1).map(x -> {
+                Function<Object[], Object>[] argumentSources = (Function<Object[], Object>[]) ctx.id().stream().skip(1).map(x -> {
                     String argumentName = x.ID().getText();
                     int ordinal = localOrdinal(locals, argumentName, depth);
 
                     boolean isFromSelection = ordinal == -1;
 
-                    if(isFromSelection) {
+                    if (isFromSelection) {
                         SlotComponent currentTarget = (SlotComponent) environment.get(argumentName);
 
                         return (Function<Object[], Object>) objects -> currentTarget;
@@ -871,11 +1016,11 @@ public class MainView extends JFrame implements Canvas {
                     Object[] arguments = Arrays.asList(argumentSources).stream().map(x -> x.apply(args)).toArray();
                     RelationInfo relation = resolveRelation(relationName, arguments);
 
-                    if(relation != null) {
+                    if (relation != null) {
                         Object[] locals = new Object[relation.localCount];
-                        for(int i = 0; i < arguments.length; i++) {
-                            if(arguments[i] instanceof BlockClosure)
-                                ((BlockClosure)arguments[i]).setLocals(locals);
+                        for (int i = 0; i < arguments.length; i++) {
+                            if (arguments[i] instanceof BlockClosure)
+                                ((BlockClosure) arguments[i]).setLocals(locals);
                         }
                         System.arraycopy(arguments, 0, locals, 0, arguments.length);
                         relation.body.accept(locals);
@@ -897,7 +1042,101 @@ public class MainView extends JFrame implements Canvas {
         });
     }
 
-    private Cell<Object> createFunctionCall(String name, java.util.List<Cell<Object>> argumentCells) {
+    private Cell<Function<Object[], Object>> createExpressionFunctionCall(String name, java.util.List<Cell<Function<Object[], Object>>> argumentCells) {
+        return new Cell<Function<Object[], Object>>() {
+            @Override
+            public Binding consume(Object[] args, CellConsumer<Function<Object[], Object>> consumer) {
+                return new Binding() {
+                    private FunctionBindingCell functionBinding = getFunction(new GenericSelector(name, argumentCells.size()));
+                    private Function<Object[], Object>[] expressionArguments = (Function<Object[], Object>[])new Function[argumentCells.size()];
+                    private Binding functionBindingBinding;
+                    private java.util.List<Binding> bindings;
+                    private Map<SpecificSelector, FunctionInfo> functions;
+
+                    {
+                        functionBindingBinding = functionBinding.consume(null, f -> {
+                            this.functions = f;
+                            update();
+                        });
+                        bindings = IntStream.range(0, argumentCells.size()).mapToObj(i -> argumentCells.get(i).consume(args, next -> {
+                            expressionArguments[i] = next;
+                            update();
+                        })).collect(Collectors.toList());
+                    }
+
+                    private void update() {
+                        if(Arrays.asList(expressionArguments).stream().filter(x -> x == null).count() == 0) {
+                            Function<Object[], Object> next = args -> {
+                                Object[] callArgs = Arrays.asList(expressionArguments).stream().map(x -> x.apply(args)).toArray();
+                                Class<?>[] parameterTypes = Arrays.asList(callArgs).stream().map(x -> x.getClass()).toArray(s -> new Class<?>[callArgs.length]);
+
+                                if(functions != null) {
+                                    FunctionInfo function = FunctionBindingCell.resolve(functions, parameterTypes);
+
+                                    if(function != null) {
+                                        Object[] locals = new Object[function.localCount];
+                                        for(int i = 0; i < callArgs.length; i++) {
+                                            if(callArgs[i] instanceof BlockClosure)
+                                                ((BlockClosure) callArgs[i]).setLocals(locals);
+                                        }
+                                        System.arraycopy(callArgs, 0, locals, 0, callArgs.length);
+
+                                        return function.body.apply(locals);
+                                    }
+                                }
+
+                                return null;
+                                /*FunctionInfo function = resolve(name, callArgs);
+
+                                if(function != null) {
+                                    Object[] locals = new Object[function.localCount];
+                                    for(int i = 0; i < callArgs.length; i++) {
+                                        if(callArgs[i] instanceof BlockClosure)
+                                            ((BlockClosure) callArgs[i]).setLocals(locals);
+                                    }
+                                    System.arraycopy(callArgs, 0, locals, 0, callArgs.length);
+                                    return function.body.apply(locals);
+                                } else
+                                    return null;*/
+                            };
+
+                            consumer.next(next);
+                        }
+                    }
+
+                    @Override
+                    public void remove() {
+                        functionBindingBinding.remove();
+                        functionBindingBinding = null;
+                        bindings.forEach(x -> x.remove());
+                        expressionArguments = null;
+                        bindings = null;
+                    }
+                };
+            }
+
+            @Override
+            public Function<Object[], Object> value(Object[] args) {
+                return null;
+
+                /*Object[] expressionArguments = argumentCells.stream().map(x -> x.value(args)).collect(Collectors.toList()).toArray();
+                FunctionInfo function = resolve(name, expressionArguments);
+
+                Object next;
+
+                if(function != null) {
+                    Object[] locals = new Object[function.localCount];
+                    System.arraycopy(expressionArguments, 0, locals, 0, expressionArguments.length);
+                    next = function.body.apply(locals);
+                } else
+                    next = null;
+
+                return next;*/
+            }
+        };
+    }
+
+    /*private Cell<Object> createFunctionCall(String name, java.util.List<Cell<Object>> argumentCells) {
         return new Cell<Object>() {
             @Override
             public Binding consume(Object[] args, CellConsumer<Object> consumer) {
@@ -959,13 +1198,277 @@ public class MainView extends JFrame implements Canvas {
                 return next;
             }
         };
+    }*/
+
+    private Cell<Function<Object[], Object>> createExpressionBinaryOperation(String operator, Cell<Function<Object[], Object>> lhsCell, Cell<Function<Object[], Object>> rhsCell) {
+        return createExpressionFunctionCall(operator, Arrays.asList(lhsCell, rhsCell));
     }
 
-    private Cell<Object> createBinaryOperation(String operator, Cell<Object> lhsCell, Cell<Object> rhsCell) {
+    /*private Cell<Object> createBinaryOperation(String operator, Cell<Object> lhsCell, Cell<Object> rhsCell) {
         return createFunctionCall(operator, Arrays.asList(lhsCell, rhsCell));
+    }*/
+
+    // Should return a cell, which represents code
+    // I.e., each value consumed from such a cell is code, than can be evaluated
+    // Should procude meta cells; cells which values are cells
+    // Should produce something evaluatable
+    // Should value method be part of Cell or rather a Expression type?
+    // So, ExpressionCells produce such expressions
+    // - a cell itself could be an expression
+    // Cells are consumable; expressions are reducable
+    private Cell<Function<Object[], Object>> reduceExpressionCell(ParserRuleContext ctx, Map<String, Cell> idToCellMap, ArrayList<VariableInfo> locals, int depth) {
+        return ctx.accept(new LangBaseVisitor<Cell<Function<Object[], Object>>>() {
+            @Override
+            public Cell<Function<Object[], Object>> visitAddExpression(@NotNull LangParser.AddExpressionContext ctx) {
+                Cell<Function<Object[], Object>> lhs = reduceExpressionCell(ctx.mulExpression(0), idToCellMap, locals, depth);
+
+                if (ctx.mulExpression().size() > 1) {
+                    for (int i = 1; i < ctx.mulExpression().size(); i++) {
+                        Cell<Function<Object[], Object>> rhsCell = reduceExpressionCell(ctx.mulExpression(i), idToCellMap, locals, depth);
+
+                        Cell<Function<Object[], Object>> lhsCell = lhs;
+
+                        String operator = ctx.ADD_OP(i - 1).getText();
+
+                        lhs = createExpressionBinaryOperation(operator, lhsCell, rhsCell);
+                    }
+                }
+
+                return lhs;
+            }
+
+            @Override
+            public Cell<Function<Object[], Object>> visitMulExpression(@NotNull LangParser.MulExpressionContext ctx) {
+                Cell<Function<Object[], Object>> lhs = reduceExpressionCell(ctx.leafExpression(0), idToCellMap, locals, depth);
+
+                if (ctx.leafExpression().size() > 1) {
+                    for (int i = 1; i < ctx.leafExpression().size(); i++) {
+                        Cell<Function<Object[], Object>> rhsCell = reduceExpressionCell(ctx.leafExpression(i), idToCellMap, locals, depth);
+
+                        Cell<Function<Object[], Object>> lhsCell = lhs;
+
+                        String operator = ctx.MUL_OP(i - 1).getText();
+
+                        lhs = createExpressionBinaryOperation(operator, lhsCell, rhsCell);
+                    }
+                }
+
+                return lhs;
+            }
+
+            @Override
+            public Cell<Function<Object[], Object>> visitFunctionCall(@NotNull LangParser.FunctionCallContext ctx) {
+                String name = ctx.id().ID().getText();
+
+                java.util.List<Cell<Function<Object[], Object>>> argumentCells = ctx.expression().stream().map(x -> reduceExpressionCell(x, idToCellMap, locals, depth)).collect(Collectors.toList());
+
+                return createExpressionFunctionCall(name, argumentCells);
+            }
+
+            @Override
+            public Cell<Function<Object[], Object>> visitProperty(@NotNull LangParser.PropertyContext ctx) {
+                String propertyName = ctx.name.ID().getText();
+                String targetName = ctx.target.ID().getText();
+
+                int ordinal = localOrdinal(locals, targetName, depth);
+
+                boolean isFromSelection = ordinal == -1;
+
+                if (isFromSelection) {
+                    Cell cell = environment.get(targetName);
+
+                    idToCellMap.put(targetName, cell);
+
+                    return ((SlotComponent) cell).propertyExpression(propertyName);
+                }
+
+                return new Cell<Function<Object[], Object>>() {
+                    @Override
+                    public Binding consume(Object[] args, CellConsumer<Function<Object[], Object>> consumer) {
+                        Function<Object[], Object> expression = eArgs -> {
+                            Object cell = args[ordinal];
+                            return ((SlotComponent) cell).propertyExpression(propertyName).getValue();
+                        };
+
+                        consumer.next(expression);
+
+                        return () -> { };
+
+                        /*Object cell = args[ordinal];
+                        return ((SlotComponent) cell).property(propertyName).consume(args, consumer);*/
+                    }
+
+                    @Override
+                    public Function<Object[], Object> value(Object[] args) {
+                        //Object cell = args[ordinal];
+                        //return ((SlotComponent) cell).property(propertyName).value(args);
+                        return null;
+                    }
+                };
+            }
+
+            @Override
+            public Cell<Function<Object[], Object>> visitId(@NotNull LangParser.IdContext ctx) {
+                String parameterName = ctx.ID().getText();
+
+                int ordinal = localOrdinal(locals, parameterName, depth);
+
+                boolean isFromSelection = ordinal == -1;
+
+                if (isFromSelection) {
+                    Cell cell = environment.get(parameterName);
+
+                    idToCellMap.put(parameterName, cell);
+
+                    return new Cell<Function<Object[], Object>>() {
+                        @Override
+                        public Binding consume(Object[] args, CellConsumer consumer) {
+                            return cell.consume(args, v -> {
+                                Function<Object[], Object> expression = eArgs -> v;
+                                consumer.next(expression);
+                            });
+                        }
+
+                        @Override
+                        public Function<Object[], Object> value(Object[] args) {
+                            /*Function<Object[], Object> expression = eArgs -> cell.value(args);
+                            return expression;*/
+
+                            return null;
+                        }
+                    };
+                }
+
+                Function<Object[], Object> expression = args -> args[ordinal];
+
+                return new Singleton<>(expression);
+            }
+
+            @Override
+            public Cell<Function<Object[], Object>> visitNumber(@NotNull LangParser.NumberContext ctx) {
+                BigDecimal value = new BigDecimal(ctx.NUMBER().getText());
+                Function<Object[], Object> expression = args -> value;
+
+                return new Singleton<>(expression);
+            }
+
+            @Override
+            public Cell<Function<Object[], Object>> visitString(@NotNull LangParser.StringContext ctx) {
+                String rawValue = ctx.STRING().getText().substring(1, ctx.STRING().getText().length() - 1);
+                String value = rawValue.replace("\\n", "\n").replace("\\r", "\r").replace("\\t", "\t").replace("\\\\", "\\");
+                Function<Object[], Object> expression = args -> value;
+
+                return new Singleton<>(expression);
+            }
+
+            @Override
+            public Cell<Function<Object[], Object>> visitArray(@NotNull LangParser.ArrayContext ctx) {
+                java.util.List<Cell<Function<Object[], Object>>> valueCells =
+                    ctx.expression().stream().map(x -> reduceExpressionCell(x, idToCellMap, locals, depth)).collect(Collectors.toList());
+
+                // Could be a usage of a/the list function?
+
+                return new Cell<Function<Object[], Object>>() {
+                    @Override
+                    public Binding consume(Object[] args, CellConsumer<Function<Object[], Object>> consumer) {
+                        return new Binding() {
+                            private java.util.List<Function<Object[], Object>> expressionArguments = new ArrayList<>();
+                            private java.util.List<Binding> bindings;
+
+                            {
+                                IntStream.range(0, valueCells.size()).forEach(i -> expressionArguments.add(null));
+                                bindings = IntStream.range(0, valueCells.size()).mapToObj(i -> valueCells.get(i).consume(args, next -> {
+                                    expressionArguments.set(i, next);
+                                    update();
+                                })).collect(Collectors.toList());
+                            }
+
+                            private void update() {
+                                if (expressionArguments.stream().filter(x -> x == null).count() == 0) {
+                                    //Object next = value(null);//valueCells.stream().map(x -> x.value(null)).toArray(s -> new Object[s]);
+
+                                    Function<Object[], Object> next = args -> {
+                                        Object[] values = expressionArguments.stream().map(x -> x.apply(null)).toArray();
+                                        return new Tuple(values);
+                                    };
+
+                                    consumer.next(next);
+                                }
+                            }
+
+                            @Override
+                            public void remove() {
+                                bindings.forEach(x -> x.remove());
+                                expressionArguments = null;
+                                bindings = null;
+                            }
+                        };
+                    }
+
+                    @Override
+                    public Function<Object[], Object> value(Object[] args) {
+                        //return new Tuple(valueCells.stream().map(x -> x.value(args)).toArray(s -> new Object[s]));
+                        return null;
+                    }
+                };
+            }
+
+            @Override
+            public Cell<Function<Object[], Object>> visitBlock(@NotNull LangParser.BlockContext ctx) {
+                int localsStart = locals.size();
+
+                int blockDepth = depth + 1;
+                if (ctx.parameters() != null)
+                    locals.addAll(ctx.parameters().ID().stream().map(x -> new VariableInfo(Object.class, x.getText(), blockDepth)).collect(Collectors.toList()));
+
+                Cell<Function<Object[], Object>> bodyCell = reduceExpressionCell(ctx.expression(), idToCellMap, locals, blockDepth);
+                int localsCount = locals.size() - localsStart;
+
+                return new Cell<Function<Object[], Object>>() {
+                    @Override
+                    public Binding consume(Object[] args, CellConsumer<Function<Object[], Object>> consumer) {
+                        return bodyCell.consume(args, v -> {
+                            Function<Object[], Object> expression = eArgs ->
+                                new BlockClosure(v, eArgs, localsStart, localsCount);
+
+                            consumer.next(expression);
+                        });
+                    }
+
+                    @Override
+                    public Function<Object[], Object> value(Object[] args) {
+                        return null;
+                    }
+                };
+
+
+                /*return new Cell() {
+                    @Override
+                    public Binding consume(Object[] args, CellConsumer consumer) {
+                        // The bodyCell should be consumed in a "meta way".
+                        // I.e., it should not be evaluated but changes to its structure is to be consumed
+                        return bodyCell.consume(args, v ->
+                            consumer.next(value(null)));
+                    }
+
+                    @Override
+                    public Object value(Object[] args) {
+                        return new BlockClosure(bodyCell, args, localsStart, localsCount);
+                    }
+                };*/
+            }
+
+            @Override
+            public Cell<Function<Object[], Object>> visitEmbeddedExpression(@NotNull LangParser.EmbeddedExpressionContext ctx) {
+                return reduceExpressionCell(ctx.expression(), idToCellMap, locals, depth);
+            }
+        });
     }
 
+    /*
     private Cell<?> reduceSource(ParserRuleContext ctx, Map<String, Cell> idToCellMap, ArrayList<VariableInfo> locals, int depth) {
+        // (Cell)return reduceExpression(...)v.alue();
+
         return ctx.accept(new LangBaseVisitor<Cell>() {
             @Override
             public Cell visitAddExpression(@NotNull LangParser.AddExpressionContext ctx) {
@@ -1026,9 +1529,6 @@ public class MainView extends JFrame implements Canvas {
                 if (isFromSelection) {
                     Cell cell = environment.get(targetName);
 
-                    if (idToCellMap == null || targetName == null || cell == null)
-                        new String();
-
                     idToCellMap.put(targetName, cell);
 
                     return ((SlotComponent) cell).property(propertyName);
@@ -1037,15 +1537,8 @@ public class MainView extends JFrame implements Canvas {
                 return new Cell() {
                     @Override
                     public Binding consume(Object[] args, CellConsumer consumer) {
-                        //consumer.next(targetName + "." + propertyName);
-
-                        //consumer.next(value(args));
-
                         Object cell = args[ordinal];
                         return ((SlotComponent) cell).property(propertyName).consume(args, consumer);
-
-                        /*return () -> {
-                        };*/
                     }
 
                     @Override
@@ -1170,7 +1663,8 @@ public class MainView extends JFrame implements Canvas {
 
                     @Override
                     public Object value(Object[] args) {
-                        return new BlockClosure(bodyCell, args, localsStart, localsCount);
+                        //return new BlockClosure(bodyCell, args, localsStart, localsCount);
+                        return null;
                     }
                 };
             }
@@ -1181,6 +1675,7 @@ public class MainView extends JFrame implements Canvas {
             }
         });
     }
+    */
 
     private int localOrdinal(ArrayList<VariableInfo> locals, String name, int depth) {
         // Find the last local with the parameterName

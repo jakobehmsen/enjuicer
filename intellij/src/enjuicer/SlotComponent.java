@@ -9,6 +9,7 @@ import java.math.BigDecimal;
 import java.util.ArrayList;
 import java.util.Hashtable;
 import java.util.function.Consumer;
+import java.util.function.Function;
 
 public class SlotComponent extends JPanel implements Cell<Object>, CellConsumer<Object> {
     private Slot<Object> slot;
@@ -33,7 +34,8 @@ public class SlotComponent extends JPanel implements Cell<Object>, CellConsumer<
 
     @Override
     public Object value(Object[] args) {
-        return slot.value(args);
+        //return slot.value(args);
+        return null;
     }
 
     @Override
@@ -96,19 +98,123 @@ public class SlotComponent extends JPanel implements Cell<Object>, CellConsumer<
         return null;
     }
 
-    public void propertyAssign(Object[] args, String name, Cell<Object> valueCell) {
+    public void propertyAssign(Object[] args, String name, Cell<Function<Object[], Object>> expressionValueCell) {//Cell<Object> valueCell) {
         Binding binding = propertyBindings.get(name);
 
         if(binding != null)
             binding.remove();
 
         Consumer propertyUpdater = propertyUpdater(name);
-        binding = valueCell.consume(args, value -> propertyUpdater.accept(value));
+        //binding = valueCell.consume(args, value -> propertyUpdater.accept(value));
+        binding = expressionValueCell.consume(args, expressionValue -> {
+            Object value = expressionValue.apply(args);
+            propertyUpdater.accept(value);
+        });
 
         propertyBindings.put(name, binding);
     }
 
-    private abstract class PropertyCell implements Cell {
+    public abstract class PropertyExpressionCell implements Cell<Function<Object[], Object>> {
+        ArrayList<CellConsumer<Function<Object[], Object>>> consumers = new ArrayList<>();
+
+        @Override
+        public Binding consume(Object[] args, CellConsumer<Function<Object[], Object>> consumer) {
+            consumers.add(consumer);
+            Function<Object[], Object> expression = eArgs -> getValue();
+            consumer.next(expression);
+            return () -> {
+                consumers.remove(consumer);
+                if(consumers.isEmpty())
+                    clean();
+            };
+        }
+
+        protected void post() {
+            Function<Object[], Object> expression = args -> getValue();
+            consumers.forEach(x -> x.next(expression));
+        }
+
+        protected abstract void clean();
+
+        @Override
+        public Function<Object[], Object> value(Object[] args) {
+            return null;
+        }
+
+        protected abstract Object getValue();
+    }
+
+    private abstract class ComponentListerPropertyExpressionCell extends PropertyExpressionCell {
+        Object lastValue;
+
+        ComponentListener listener = new ComponentAdapter() {
+            {
+                lastValue = getValue();
+            }
+
+            @Override
+            public void componentResized(ComponentEvent e) {
+                componentChanged();
+            }
+
+            @Override
+            public void componentMoved(ComponentEvent e) {
+                componentChanged();
+            }
+        };
+
+        {
+            addComponentListener(listener);
+        }
+
+        @Override
+        protected void clean() {
+            removeComponentListener(listener);
+        }
+
+        protected void componentChanged() {
+            if(lastValue == null || !lastValue.equals(getValue()));
+            post();
+            lastValue = getValue();
+        }
+    }
+
+    public PropertyExpressionCell propertyExpression(String name) {
+        switch(name) {
+            case "x":
+                return new ComponentListerPropertyExpressionCell() {
+                    @Override
+                    public Object getValue() {
+                        return new BigDecimal(getX());
+                    }
+                };
+            case "y":
+                return new ComponentListerPropertyExpressionCell() {
+                    @Override
+                    public Object getValue() {
+                        return new BigDecimal(getY());
+                    }
+                };
+            case "width":
+                return new ComponentListerPropertyExpressionCell() {
+                    @Override
+                    public Object getValue() {
+                        return new BigDecimal(getWidth());
+                    }
+                };
+            case "height":
+                return new ComponentListerPropertyExpressionCell() {
+                    @Override
+                    public Object getValue() {
+                        return new BigDecimal(getHeight());
+                    }
+                };
+        }
+
+        return null;
+    }
+
+    /*private abstract class PropertyCell implements Cell {
         ArrayList<CellConsumer> consumers = new ArrayList<>();
 
         @Override
@@ -127,9 +233,9 @@ public class SlotComponent extends JPanel implements Cell<Object>, CellConsumer<
         }
 
         protected abstract void clean();
-    }
+    }*/
 
-    private abstract class ComponentListerPropertyCell extends PropertyCell {
+    /*private abstract class ComponentListerPropertyCell extends PropertyCell {
         Object lastValue;
 
         ComponentListener listener = new ComponentAdapter() {
@@ -162,9 +268,9 @@ public class SlotComponent extends JPanel implements Cell<Object>, CellConsumer<
                 post();
             lastValue = value(null);
         }
-    }
+    }*/
 
-    public Cell property(String name) {
+    /*public Cell property(String name) {
         switch(name) {
             case "x":
                 return new ComponentListerPropertyCell() {
@@ -197,5 +303,5 @@ public class SlotComponent extends JPanel implements Cell<Object>, CellConsumer<
         }
 
         return null;
-    }
+    }*/
 }
