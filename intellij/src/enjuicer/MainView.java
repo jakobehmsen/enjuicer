@@ -290,44 +290,46 @@ public class MainView extends JFrame implements Canvas {
     }*/
 
     //private Hashtable<Selector, FunctionInfo> genericFunctions = new Hashtable<>();
-    private Hashtable<GenericSelector, FunctionBindingCell> genericFunctions = new Hashtable<>();
+    private Hashtable<Selector, Binding> functionBindings = new Hashtable<>();
+    private Hashtable<GenericSelector, GenericFunction> genericFunctions = new Hashtable<>();
 
-    private static class FunctionBindingCell implements Cell<Map<SpecificSelector, FunctionInfo>> {
-        private Hashtable<SpecificSelector, Binding> functionDefBindings = new Hashtable<>();
-        private Hashtable<SpecificSelector, FunctionCellInfo> functionCells = new Hashtable<>();
-        private Hashtable<SpecificSelector, FunctionInfo> functions = new Hashtable<>();
-        private ArrayList<CellConsumer<Map<SpecificSelector, FunctionInfo>>> consumers = new ArrayList<>();
+    private static class GenericFunction implements Cell<Map<SpecificSelector, SpecificFunctionInfo>> {
+        //private Hashtable<SpecificSelector, Binding> specificFunctionBindings = new Hashtable<>();
+        //private Hashtable<SpecificSelector, GenericFunctionInfo> applicableGenericFunctions = new Hashtable<>();
+        private Hashtable<SpecificSelector, SpecificFunctionInfo> applicableSpecificFunctions = new Hashtable<>();
+        private ArrayList<CellConsumer<Map<SpecificSelector, SpecificFunctionInfo>>> consumers = new ArrayList<>();
 
-        public void define(Class<?>[] parameterTypes, FunctionCellInfo functionCell) {
-            SpecificSelector selector = new SpecificSelector(parameterTypes);
-            Binding existingFunctionDefBinding = functionDefBindings.get(selector);
-            if(existingFunctionDefBinding != null)
-                existingFunctionDefBinding.remove();
+        public void define(Class<?>[] parameterTypes, SpecificFunctionInfo genericFunction) {
+            SpecificSelector specificSelector = new SpecificSelector(parameterTypes);
+            /*Binding existingSpecificFunctionBinding = specificFunctionBindings.get(specificSelector);
+            if(existingSpecificFunctionBinding != null)
+                existingSpecificFunctionBinding.remove();*/
 
-            functionCells.put(selector, functionCell);
-            Binding functionDefBinding = functionCell.body.consume(null, x -> {
-                functions.put(selector, new FunctionInfo(functionCell.localCount, x));
+            /*applicableGenericFunctions.put(specificSelector, genericFunction);
+            Binding functionDefBinding = genericFunction.body.consume(null, x -> {
+                applicableSpecificFunctions.put(specificSelector, new SpecificFunctionInfo(genericFunction.localCount, x));
                 update();
             });
-            functionDefBindings.put(selector, functionDefBinding);
+            specificFunctionBindings.put(specificSelector, functionDefBinding);*/
+            applicableSpecificFunctions.put(specificSelector, genericFunction);
             update();
         }
 
         private void update() {
-            consumers.forEach(x -> x.next((Map<SpecificSelector, FunctionInfo>)functions.clone()));
+            consumers.forEach(x -> x.next((Map<SpecificSelector, SpecificFunctionInfo>) applicableSpecificFunctions.clone()));
         }
 
         @Override
-        public Binding consume(Object[] args, CellConsumer<Map<SpecificSelector, FunctionInfo>> consumer) {
+        public Binding consume(Object[] args, CellConsumer<Map<SpecificSelector, SpecificFunctionInfo>> consumer) {
             consumers.add(consumer);
 
-            consumer.next(functions);
+            consumer.next((Map<SpecificSelector, SpecificFunctionInfo>) applicableSpecificFunctions.clone());
 
             return () -> consumers.remove(consumer);
         }
 
-        public static FunctionInfo resolve(Map<SpecificSelector, FunctionInfo> functions, Class<?>[] parameterTypes) {
-            java.util.List<FunctionInfo> candidates = functions.entrySet().stream()
+        public static SpecificFunctionInfo resolve(Map<SpecificSelector, SpecificFunctionInfo> functions, Class<?>[] parameterTypes) {
+            java.util.List<SpecificFunctionInfo> candidates = functions.entrySet().stream()
                 .filter(x ->
                     x.getKey().parameterTypes.length == parameterTypes.length)
                 .filter(x ->
@@ -345,15 +347,15 @@ public class MainView extends JFrame implements Canvas {
         }
 
         @Override
-        public Map<SpecificSelector, FunctionInfo> value(Object[] args) {
+        public Map<SpecificSelector, SpecificFunctionInfo> value(Object[] args) {
             return null;
         }
     }
 
-    private FunctionBindingCell getFunction(GenericSelector selector) {
-        FunctionBindingCell functionBinding = genericFunctions.get(selector);
+    private GenericFunction getFunction(GenericSelector selector) {
+        GenericFunction functionBinding = genericFunctions.get(selector);
         if(functionBinding == null) {
-            functionBinding = new FunctionBindingCell();
+            functionBinding = new GenericFunction();
             genericFunctions.put(selector, functionBinding);
         }
         return functionBinding;
@@ -364,13 +366,17 @@ public class MainView extends JFrame implements Canvas {
     }
 
     private void define(String name, Class<?>[] parameterTypes, int localCount, Cell<Function<Object[], Object>> function) {
-        FunctionBindingCell functionBinding = getFunction(new GenericSelector(name, parameterTypes.length));
-        functionBinding.define(parameterTypes, new FunctionCellInfo(localCount, function));
+        //GenericFunction genericFunction = getFunction(new GenericSelector(name, parameterTypes.length));
+        //genericFunction.define(parameterTypes, new GenericFunctionInfo(localCount, function));
+
         //genericFunctions.put(new Selector(name, parameterTypes), new FunctionInfo(localCount, function));
     }
 
     private void define(String name, Class<?>[] parameterTypes, int localCount, Function<Object[], Object> function) {
-        define(name, parameterTypes, localCount, new Singleton<Function<Object[], Object>>(function));
+        GenericFunction genericFunction = getFunction(new GenericSelector(name, parameterTypes.length));
+        genericFunction.define(parameterTypes, new SpecificFunctionInfo(localCount, function));
+
+        //define(name, parameterTypes, localCount, new Singleton<Function<Object[], Object>>(function));
         //genericFunctions.put(new Selector(name, parameterTypes), new FunctionInfo(localCount, function));
     }
 
@@ -390,8 +396,8 @@ public class MainView extends JFrame implements Canvas {
         define(name, new Class<?>[]{param1, param2, param3}, args -> function.apply((P0)args[0], (P1)args[1], (P2)args[2]));
     }
 
-    private RelationInfo resolveRelation(String name, Object[] arguments) {
-        java.util.List<RelationInfo> candidates = relations.entrySet().stream()
+    /*private GenericRelationInfo resolveRelation(String name, Object[] arguments) {
+        java.util.List<GenericRelationInfo> candidates = genericRelations.entrySet().stream()
             .filter(x ->
                 x.getKey().name.equals(name))
             .filter(x ->
@@ -408,12 +414,83 @@ public class MainView extends JFrame implements Canvas {
         }
 
         return null;
+    }*/
+
+    /*
+    Modify relation usages to be implicitly updated like function calls
+    */
+    private Hashtable<GenericSelector, GenericRelation> genericRelations = new Hashtable<>();
+
+    private static class GenericRelation implements Cell<Map<SpecificSelector, SpecificRelationInfo>> {
+        private Hashtable<SpecificSelector, Binding> specificRelationBindings = new Hashtable<>();
+        private Hashtable<SpecificSelector, GenericRelationInfo> applicableGenericRelations = new Hashtable<>();
+        private Hashtable<SpecificSelector, SpecificRelationInfo> applicableSpecificRelations = new Hashtable<>();
+        private ArrayList<CellConsumer<Map<SpecificSelector, SpecificRelationInfo>>> consumers = new ArrayList<>();
+
+        public void define(Class<?>[] parameterTypes, GenericRelationInfo genericRelation) {
+            SpecificSelector specificSelector = new SpecificSelector(parameterTypes);
+            Binding existingSpecificRelationBinding = specificRelationBindings.get(specificSelector);
+            if(existingSpecificRelationBinding != null)
+                existingSpecificRelationBinding.remove();
+
+            applicableGenericRelations.put(specificSelector, genericRelation);
+            Binding functionDefBinding = genericRelation.body.consume(null, x -> {
+                applicableSpecificRelations.put(specificSelector, new SpecificRelationInfo(genericRelation.localCount, x));
+                update();
+            });
+            specificRelationBindings.put(specificSelector, functionDefBinding);
+            update();
+        }
+
+        private void update() {
+            consumers.forEach(x -> x.next((Map<SpecificSelector, SpecificRelationInfo>) applicableSpecificRelations.clone()));
+        }
+
+        @Override
+        public Binding consume(Object[] args, CellConsumer<Map<SpecificSelector, SpecificRelationInfo>> consumer) {
+            consumers.add(consumer);
+
+            consumer.next((Map<SpecificSelector, SpecificRelationInfo>) applicableSpecificRelations.clone());
+
+            return () -> consumers.remove(consumer);
+        }
+
+        public static SpecificFunctionInfo resolve(Map<SpecificSelector, SpecificFunctionInfo> functions, Class<?>[] parameterTypes) {
+            java.util.List<SpecificFunctionInfo> candidates = functions.entrySet().stream()
+                .filter(x ->
+                    x.getKey().parameterTypes.length == parameterTypes.length)
+                .filter(x ->
+                    IntStream.range(0, parameterTypes.length).allMatch(i ->
+                        x.getKey().parameterTypes[i].isAssignableFrom(parameterTypes[i])))
+                .map(x -> x.getValue())
+                .collect(Collectors.toList());
+
+            if(candidates.size() > 0) {
+                // TODO: Compare candidates; select "most specific".
+                return candidates.get(0);
+            }
+
+            return null;
+        }
+
+        @Override
+        public Map<SpecificSelector, SpecificRelationInfo> value(Object[] args) {
+            return null;
+        }
     }
 
-    private Hashtable<Selector, RelationInfo> relations = new Hashtable<>();
+    private GenericRelation getRelation(GenericSelector selector) {
+        GenericRelation functionBinding = genericRelations.get(selector);
+        if(functionBinding == null) {
+            functionBinding = new GenericRelation();
+            genericRelations.put(selector, functionBinding);
+        }
+        return functionBinding;
+    }
 
-    private void defineRelation(String name, Class<?>[] parameterTypes, int localCount, Consumer<Object[]> body) {
-        relations.put(new Selector(name, parameterTypes), new RelationInfo(localCount, body));
+    private void defineRelation(String name, Class<?>[] parameterTypes, int localCount, Cell<Consumer<Object[]>> relation) {
+        GenericRelation genericRelation = getRelation(new GenericSelector(name, parameterTypes.length));
+        genericRelation.define(parameterTypes, new GenericRelationInfo(localCount, relation));
     }
 
     public MainView(java.util.List<Tool> tools) {
@@ -823,10 +900,10 @@ public class MainView extends JFrame implements Canvas {
         };
     }
 
-    private Consumer<Object[]> parseStatement(ParserRuleContext statementCtx, ArrayList<VariableInfo> locals, int depth) {
-        return statementCtx.accept(new LangBaseVisitor<Consumer<Object[]>>() {
+    private Cell<Consumer<Object[]>> parseStatement(ParserRuleContext statementCtx, ArrayList<VariableInfo> locals, int depth, boolean atRoot) {
+        return statementCtx.accept(new LangBaseVisitor<Cell<Consumer<Object[]>>>() {
             @Override
-            public Consumer<Object[]> visitPropertyAssign(@NotNull LangParser.PropertyAssignContext ctx) {
+            public Cell<Consumer<Object[]>> visitPropertyAssign(@NotNull LangParser.PropertyAssignContext ctx) {
                 String targetName = ctx.target.ID().getText();
                 String propertyName = ctx.name.ID().getText();
 
@@ -841,20 +918,66 @@ public class MainView extends JFrame implements Canvas {
                 if (isFromSelection) {
                     SlotComponent currentTarget = (SlotComponent) environment.get(targetName);
 
-                    return args -> {
+                    if(atRoot) {
+                        // If there already is a binding for this property, then remove this binding
+                    }
+
+                    return new Cell<Consumer<Object[]>>() {
+                        @Override
+                        public Binding consume(Object[] args, CellConsumer<Consumer<Object[]>> consumer) {
+                            return source.consume(null, valueExpression -> {
+                                Consumer<Object[]> statement = sArgs -> {
+                                    Object cell = args[ordinal];
+                                    Object value = valueExpression.apply(sArgs);
+                                    ((SlotComponent) cell).propertyAssign(args, propertyName, value);
+                                };
+
+                                consumer.next(statement);
+                            });
+                        }
+
+                        @Override
+                        public Consumer<Object[]> value(Object[] args) {
+                            return null;
+                        }
+                    };
+
+                    /*return args -> {
 
                         currentTarget.propertyAssign(args, propertyName, source);
-                    };
+                    };*/
                 }
 
-                return args -> {
+                return new Cell<Consumer<Object[]>>() {
+                    @Override
+                    public Binding consume(Object[] args, CellConsumer<Consumer<Object[]>> consumer) {
+                        return source.consume(null, valueExpression -> {
+                            Consumer<Object[]> statement = sArgs -> {
+                                Object cell = args[ordinal];
+                                ((SlotComponent) cell).propertyAssign(args, propertyName, source);
+                                Object value = valueExpression.apply(sArgs);
+                                ((SlotComponent) cell).propertyAssign(args, propertyName, value);
+                            };
+
+                            consumer.next(statement);
+                        });
+                    }
+
+                    @Override
+                    public Consumer<Object[]> value(Object[] args) {
+                        return null;
+                    }
+                };
+
+
+                /*return args -> {
                     Object cell = args[ordinal];
                     ((SlotComponent) cell).propertyAssign(args, propertyName, source);
-                };
+                };*/
             }
 
             @Override
-            public Consumer<Object[]> visitAssign(@NotNull LangParser.AssignContext ctx) {
+            public Cell<Consumer<Object[]>> visitAssign(@NotNull LangParser.AssignContext ctx) {
                 Map<String, Cell> idToCellMap = new Hashtable<>();
 
                 String variableName = ctx.ID().getText();
@@ -863,7 +986,187 @@ public class MainView extends JFrame implements Canvas {
                 Cell<Function<Object[], Object>> source = (Cell<Function<Object[], Object>>) reduceExpressionCell(ctx.expression(), idToCellMap, locals, 0);
                 String srcCode = ctx.getText();
 
-                return args -> {
+                if(atRoot || environment.containsKey(variableName)) {
+                    return new Cell<Consumer<Object[]>>() {
+                        @Override
+                        public Binding consume(Object[] args, CellConsumer<Consumer<Object[]>> consumer) {
+                            CellConsumer<Object> environmentCell = (CellConsumer<Object>) environment.get(variableName);
+
+                            SlotComponent newElement;
+
+                            if(environmentCell != null) {
+                                environmentCell.getBinding().remove();
+                                idToCellMap.put(variableName, (Cell) environmentCell);
+                                newElement = null;
+                            } else {
+                                newElement = new SlotComponent(new SlotValueComponentFactory() {
+                                    boolean atFirst = true;
+
+                                    @Override
+                                    public SlotValueComponent createSlotComponentValue(JPanel wrapper, Slot slot, Object value) {
+                                        if (value instanceof BigDecimal) {
+                                            SlotValueComponent svc = createSlotNumber(slot, (BigDecimal) value);
+                                            if (atFirst) {
+                                                svc.getComponent().setSize(60, 20);
+                                                svc.getComponent().setLocation(nextOutX, nextOutY);
+
+                                                updateOuts(svc.getComponent().getWidth(), svc.getComponent().getHeight());
+                                            }
+                                            atFirst = false;
+                                            return svc;
+                                        } else if (value instanceof String) {
+                                            SlotValueComponent svc = createSlotText(slot, (String) value);
+                                            if (atFirst) {
+                                                svc.getComponent().setSize(60, 20);
+                                                svc.getComponent().setLocation(nextOutX, nextOutY);
+
+                                                updateOuts(svc.getComponent().getWidth(), svc.getComponent().getHeight());
+                                            }
+                                            atFirst = false;
+                                            return svc;
+                                        } else if (value instanceof Line) {
+                                            atFirst = false;
+                                            return createSlotLine(slot, (Line) value);
+                                        } else if (value instanceof Function) {
+                                            return ((Function<Function<Object, SlotValueComponent>, SlotValueComponent>) value).apply(v ->
+                                                createSlotComponentValue(wrapper, slot, v));
+                                        } else {
+                                            SlotValueComponent svc = createSlotDefault(slot, value);
+                                            if (atFirst) {
+                                                svc.getComponent().setSize(60, 20);
+                                                svc.getComponent().setLocation(nextOutX, nextOutY);
+
+                                                updateOuts(svc.getComponent().getWidth(), svc.getComponent().getHeight());
+                                            }
+                                            atFirst = false;
+                                            return svc;
+                                        }
+                                    }
+                                });
+
+                                newElement.setName(variableName);
+                                environmentCell = newElement;
+                                idToCellMap.put(variableName, newElement);
+                                canvasView.add(newElement);
+                                canvasView.moveToFront(newElement);
+
+                                select(newElement);
+                            }
+
+                            CellConsumer<Object> currentTarget = environmentCell;
+
+                            Binding binding = source.consume(null, valueExpression -> {
+                                Consumer<Object[]> statement = sArgs -> {
+                                    //CellConsumer<Object> environmentCell = (CellConsumer<Object>) environment.get(variableName);
+                                    //CellConsumer<Object> currentTarget;
+
+                                    if (newElement != null) {//environmentCell == null) {
+                                        /*SlotComponent newElement = new SlotComponent(new SlotValueComponentFactory() {
+                                            boolean atFirst = true;
+
+                                            @Override
+                                            public SlotValueComponent createSlotComponentValue(JPanel wrapper, Slot slot, Object value) {
+                                                if (value instanceof BigDecimal) {
+                                                    SlotValueComponent svc = createSlotNumber(slot, (BigDecimal) value);
+                                                    if (atFirst) {
+                                                        svc.getComponent().setSize(60, 20);
+                                                        svc.getComponent().setLocation(nextOutX, nextOutY);
+
+                                                        updateOuts(svc.getComponent().getWidth(), svc.getComponent().getHeight());
+                                                    }
+                                                    atFirst = false;
+                                                    return svc;
+                                                } else if (value instanceof String) {
+                                                    SlotValueComponent svc = createSlotText(slot, (String) value);
+                                                    if (atFirst) {
+                                                        svc.getComponent().setSize(60, 20);
+                                                        svc.getComponent().setLocation(nextOutX, nextOutY);
+
+                                                        updateOuts(svc.getComponent().getWidth(), svc.getComponent().getHeight());
+                                                    }
+                                                    atFirst = false;
+                                                    return svc;
+                                                } else if (value instanceof Line) {
+                                                    atFirst = false;
+                                                    return createSlotLine(slot, (Line) value);
+                                                } else if (value instanceof Function) {
+                                                    return ((Function<Function<Object, SlotValueComponent>, SlotValueComponent>) value).apply(v ->
+                                                        createSlotComponentValue(wrapper, slot, v));
+                                                } else {
+                                                    SlotValueComponent svc = createSlotDefault(slot, value);
+                                                    if (atFirst) {
+                                                        svc.getComponent().setSize(60, 20);
+                                                        svc.getComponent().setLocation(nextOutX, nextOutY);
+
+                                                        updateOuts(svc.getComponent().getWidth(), svc.getComponent().getHeight());
+                                                    }
+                                                    atFirst = false;
+                                                    return svc;
+                                                }
+                                            }
+                                        });*/
+
+                                        //newElement.setName(variableName);
+
+                                        //idToCellMap.put(variableName, newElement);
+
+                                        //currentTarget = newElement;
+                                        //canvasView.add(newElement);
+                                        //canvasView.moveToFront(newElement);
+
+                                        //select(newElement);
+                                    } else {
+                                        //currentTarget = environmentCell;
+                                        //idToCellMap.put(variableName, (Cell) currentTarget);
+                                    }
+
+                                    Object result = valueExpression.apply(sArgs);
+                                    currentTarget.next(result);
+                                    /*Binding binding = source.consume(sArgs, expression -> {
+                                        Object result = expression.apply(new Object[0]);
+                                        currentTarget.next(result);
+                                    });*/
+                                    //currentTarget.setBinding(binding);
+                                    currentTarget.setDescription(new Description(idToCellMap, srcCode));
+                                };
+
+                                consumer.next(statement);
+                            });
+
+                            currentTarget.setBinding(binding);
+
+                            return binding;
+                        }
+
+                        @Override
+                        public Consumer<Object[]> value(Object[] args) {
+                            return null;
+                        }
+                    };
+                } else {
+                    int ordinal = localOrdinal(locals, variableName, depth);
+
+                    return new Cell<Consumer<Object[]>>() {
+                        @Override
+                        public Binding consume(Object[] args, CellConsumer<Consumer<Object[]>> consumer) {
+                            return source.consume(null, valueExpression -> {
+                                Consumer<Object[]> statement = sArgs -> {
+                                    Object value = valueExpression.apply(sArgs);
+                                    sArgs[ordinal] = value;
+                                };
+
+                                consumer.next(statement);
+                            });
+                        }
+
+                        @Override
+                        public Consumer<Object[]> value(Object[] args) {
+                            return null;
+                        }
+                    };
+                }
+
+                /*return args -> {
                     CellConsumer<Object> environmentCell = (CellConsumer<Object>) environment.get(variableName);
                     CellConsumer<Object> currentTarget;
 
@@ -933,11 +1236,11 @@ public class MainView extends JFrame implements Canvas {
                     });
                     currentTarget.setBinding(binding);
                     currentTarget.setDescription(new Description(idToCellMap, srcCode));
-                };
+                };*/
             }
 
             @Override
-            public Consumer<Object[]> visitFunction(@NotNull LangParser.FunctionContext ctx) {
+            public Cell<Consumer<Object[]>> visitFunction(@NotNull LangParser.FunctionContext ctx) {
                 String functionName = ctx.ID().getText();
 
                 ArrayList<VariableInfo> functionLocals = new ArrayList<>();
@@ -962,13 +1265,42 @@ public class MainView extends JFrame implements Canvas {
                       by the function binding being consumed
                 */
 
+                // If there already is a binding for this selector function, then remove it?
+
+                return new Cell<Consumer<Object[]>>() {
+                    @Override
+                    public Binding consume(Object[] args, CellConsumer<Consumer<Object[]>> consumer) {
+                        if(atRoot) {
+                            Binding existingBinding = functionBindings.get(new Selector(functionName, parameterTypes));
+                            if(existingBinding != null)
+                                existingBinding.remove();
+                        }
+
+                        Binding binding = cellBody.consume(null, cellBodyExpression -> {
+                            define(functionName, parameterTypes, functionLocals.size(), cellBodyExpression);
+                        });
+
+                        if(atRoot)
+                            functionBindings.put(new Selector(functionName, parameterTypes), binding);
+
+                        return binding;
+                    }
+
+                    @Override
+                    public Consumer<Object[]> value(Object[] args) {
+                        return null;
+                    }
+                };
+
+                /*
                 return args ->
                     define(functionName, parameterTypes, functionLocals.size(), cellBody);
+                */
             }
 
             @Override
-            public Consumer<Object[]> visitRelation(@NotNull LangParser.RelationContext ctx) {
-                String relationName = ctx.ID().getText();
+            public Cell<Consumer<Object[]>> visitRelation(@NotNull LangParser.RelationContext ctx) {
+                /*String relationName = ctx.ID().getText();
 
                 ArrayList<VariableInfo> relationLocals = new ArrayList<>();
                 if (ctx.parameters() != null)
@@ -982,12 +1314,14 @@ public class MainView extends JFrame implements Canvas {
                 Class<?>[] parameterTypes = parameters.map(x -> x.type).toArray(s -> new Class<?>[s]);
 
                 return args ->
-                    defineRelation(relationName, parameterTypes, relationLocals.size(), body);
+                    defineRelation(relationName, parameterTypes, relationLocals.size(), body);*/
+
+                return null;
             }
 
             @Override
-            public Consumer<Object[]> visitRelationCall(@NotNull LangParser.RelationCallContext ctx) {
-                String relationName = ctx.name.getText();
+            public Cell<Consumer<Object[]>> visitRelationCall(@NotNull LangParser.RelationCallContext ctx) {
+                /*String relationName = ctx.name.getText();
 
                 // Each argument is assumed to be a cell
                 // First id is assumed to be the name
@@ -1014,7 +1348,7 @@ public class MainView extends JFrame implements Canvas {
 
                 return args -> {
                     Object[] arguments = Arrays.asList(argumentSources).stream().map(x -> x.apply(args)).toArray();
-                    RelationInfo relation = resolveRelation(relationName, arguments);
+                    GenericRelationInfo relation = resolveRelation(relationName, arguments);
 
                     if (relation != null) {
                         Object[] locals = new Object[relation.localCount];
@@ -1025,7 +1359,9 @@ public class MainView extends JFrame implements Canvas {
                         System.arraycopy(arguments, 0, locals, 0, arguments.length);
                         relation.body.accept(locals);
                     }
-                };
+                };*/
+
+                return null;
             }
         });
     }
@@ -1036,9 +1372,13 @@ public class MainView extends JFrame implements Canvas {
 
         programCtx.statement().stream().forEach(x -> {
             ArrayList<VariableInfo> locals = new ArrayList<VariableInfo>();
-            Consumer<Object[]> statement = parseStatement(x, locals, 0);
-            Object[] args = new Object[locals.size()];
-            statement.accept(args);
+            Cell<Consumer<Object[]>> statementCell = parseStatement(x, locals, 0, true);
+
+            // Each time the statement's (constraint's) content is changed, it is refired (maintained)
+            statementCell.consume(null, statement -> {
+                Object[] args = new Object[locals.size()];
+                statement.accept(args);
+            });
         });
     }
 
@@ -1047,11 +1387,11 @@ public class MainView extends JFrame implements Canvas {
             @Override
             public Binding consume(Object[] args, CellConsumer<Function<Object[], Object>> consumer) {
                 return new Binding() {
-                    private FunctionBindingCell functionBinding = getFunction(new GenericSelector(name, argumentCells.size()));
+                    private GenericFunction functionBinding = getFunction(new GenericSelector(name, argumentCells.size()));
                     private Function<Object[], Object>[] expressionArguments = (Function<Object[], Object>[])new Function[argumentCells.size()];
                     private Binding functionBindingBinding;
                     private java.util.List<Binding> bindings;
-                    private Map<SpecificSelector, FunctionInfo> functions;
+                    private Map<SpecificSelector, SpecificFunctionInfo> functions;
 
                     {
                         functionBindingBinding = functionBinding.consume(null, f -> {
@@ -1071,7 +1411,7 @@ public class MainView extends JFrame implements Canvas {
                                 Class<?>[] parameterTypes = Arrays.asList(callArgs).stream().map(x -> x.getClass()).toArray(s -> new Class<?>[callArgs.length]);
 
                                 if(functions != null) {
-                                    FunctionInfo function = FunctionBindingCell.resolve(functions, parameterTypes);
+                                    SpecificFunctionInfo function = GenericFunction.resolve(functions, parameterTypes);
 
                                     if(function != null) {
                                         Object[] locals = new Object[function.localCount];

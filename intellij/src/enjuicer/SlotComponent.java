@@ -22,10 +22,22 @@ public class SlotComponent extends JPanel implements Cell<Object>, CellConsumer<
         this.slotValueFactory = slotValueFactory;
     }
 
+    private Binding binding;
+
     @Override
     public void setBinding(Binding binding) {
-        slot.setBinding(binding);
+        this.binding = binding;
     }
+
+    @Override
+    public Binding getBinding() {
+        return binding;
+    }
+
+    /*@Override
+    public void setBinding(Binding binding) {
+        //slot.setBinding(binding);
+    }*/
 
     @Override
     public Binding consume(Object[] args, CellConsumer<Object> consumer) {
@@ -66,10 +78,10 @@ public class SlotComponent extends JPanel implements Cell<Object>, CellConsumer<
         return slot.getDescription();
     }
 
-    @Override
+    /*@Override
     public Binding getBinding() {
         return slot.getBinding();
-    }
+    }*/
 
     private Hashtable<String, Binding> propertyBindings = new Hashtable<>();
 
@@ -112,6 +124,11 @@ public class SlotComponent extends JPanel implements Cell<Object>, CellConsumer<
         });
 
         propertyBindings.put(name, binding);
+    }
+
+    public void propertyAssign(Object[] args, String name, Object value) {//Cell<Object> valueCell) {
+        Consumer propertyUpdater = propertyUpdater(name);
+        propertyUpdater.accept(value);
     }
 
     public abstract class PropertyExpressionCell implements Cell<Function<Object[], Object>> {
