@@ -126,6 +126,22 @@ public class SlotComponent extends JPanel implements Cell<Object>, CellConsumer<
         propertyBindings.put(name, binding);
     }
 
+    /*public void propertyAssign(Object[] args, String name, Cell<Object> valueCell) {
+        Binding binding = propertyBindings.get(name);
+
+        if(binding != null)
+            binding.remove();
+
+        Consumer propertyUpdater = propertyUpdater(name);
+        //binding = valueCell.consume(args, value -> propertyUpdater.accept(value));
+        binding = valueCell.consume(args, value -> {
+            //Object value = expressionValue.apply(args);
+            propertyUpdater.accept(value);
+        });
+
+        propertyBindings.put(name, binding);
+    }*/
+
     public void propertyAssign(Object[] args, String name, Object value) {//Cell<Object> valueCell) {
         Consumer propertyUpdater = propertyUpdater(name);
         propertyUpdater.accept(value);
@@ -231,7 +247,7 @@ public class SlotComponent extends JPanel implements Cell<Object>, CellConsumer<
         return null;
     }
 
-    /*private abstract class PropertyCell implements Cell {
+    private abstract class PropertyCell implements Cell {
         ArrayList<CellConsumer> consumers = new ArrayList<>();
 
         @Override
@@ -250,9 +266,9 @@ public class SlotComponent extends JPanel implements Cell<Object>, CellConsumer<
         }
 
         protected abstract void clean();
-    }*/
+    }
 
-    /*private abstract class ComponentListerPropertyCell extends PropertyCell {
+    private abstract class ComponentListerPropertyCell extends PropertyCell {
         Object lastValue;
 
         ComponentListener listener = new ComponentAdapter() {
@@ -285,9 +301,9 @@ public class SlotComponent extends JPanel implements Cell<Object>, CellConsumer<
                 post();
             lastValue = value(null);
         }
-    }*/
+    }
 
-    /*public Cell property(String name) {
+    public Cell property(String name) {
         switch(name) {
             case "x":
                 return new ComponentListerPropertyCell() {
@@ -320,5 +336,5 @@ public class SlotComponent extends JPanel implements Cell<Object>, CellConsumer<
         }
 
         return null;
-    }*/
+    }
 }
