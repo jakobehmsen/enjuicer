@@ -967,14 +967,48 @@ public class MainView extends JFrame implements Canvas {
 
                     idToCellMap.put(targetName, cell);
 
-                    return args ->
-                        ((SlotComponent) cell).property(propertyName);
+                    Cell propertyCell = ((SlotComponent) cell).property(propertyName);
+
+                    if(depth == 0)
+                        return args -> propertyCell;
+                    else
+                        return eArgs -> new Cell() {
+                            @Override
+                            public Binding consume(Object[] args, CellConsumer consumer) {
+                                return propertyCell.consume(null, v -> {
+                                    Function<Object[], Object> expression = eArgs2 -> v;
+                                    consumer.next(expression);
+                                });
+                            }
+
+                            @Override
+                            public Object value(Object[] args) {
+                                return null;
+                            }
+                        };
                 }
 
-                return args -> {
-                    Object cell = args[ordinal];
-                    return ((SlotComponent) cell).property(propertyName);
-                };
+                if(depth == 0)
+                    return args -> {
+                        Object cell = args[ordinal];
+                        return ((SlotComponent) cell).property(propertyName);
+                    };
+                else
+                    throw new RuntimeException("Cannot access cell properties through block arguments.");
+                    /*return args -> new Cell() {
+                        @Override
+                        public Binding consume(Object[] args, CellConsumer consumer) {
+                            Function<Object[], Object> expression = args2 -> args2[ordinal];
+                            consumer.next(expression);
+
+                            return () -> { };
+                        }
+
+                        @Override
+                        public Object value(Object[] args) {
+                            return null;
+                        }
+                    };*/
             }
 
             @Override
