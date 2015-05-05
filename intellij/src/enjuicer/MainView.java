@@ -995,20 +995,6 @@ public class MainView extends JFrame implements Canvas {
                     };
                 else
                     throw new RuntimeException("Cannot access cell properties through block arguments.");
-                    /*return args -> new Cell() {
-                        @Override
-                        public Binding consume(Object[] args, CellConsumer consumer) {
-                            Function<Object[], Object> expression = args2 -> args2[ordinal];
-                            consumer.next(expression);
-
-                            return () -> { };
-                        }
-
-                        @Override
-                        public Object value(Object[] args) {
-                            return null;
-                        }
-                    };*/
             }
 
             @Override
@@ -1136,10 +1122,20 @@ public class MainView extends JFrame implements Canvas {
 
                                 private void update() {
                                     if (expressionArguments.stream().filter(x -> x == null).count() == 0) {
-                                        Object[] values = expressionArguments.toArray();
-                                        Object next = new Tuple(values);
+                                        if(depth == 0) {
+                                            Object[] values = expressionArguments.toArray();
+                                            Object next = new Tuple(values);
 
-                                        consumer.next(next);
+                                            consumer.next(next);
+                                        } else {
+                                            Function<Object[], Object> next = args -> {
+                                                Object[] values = expressionArguments.stream().map(x -> ((Function<Object[], Object>) x).apply(args)).toArray();
+
+                                                return new Tuple(values);
+                                            };
+
+                                            consumer.next(next);
+                                        }
                                     }
                                 }
 
@@ -1170,7 +1166,7 @@ public class MainView extends JFrame implements Canvas {
                     locals.addAll(ctx.parameters().ID().stream().map(x -> new VariableInfo(Object.class, x.getText(), blockDepth)).collect(Collectors.toList()));
 
                 Function<Object[], Cell> bodyExpression = parseExpression(ctx.expression(), idToCellMap, locals, blockDepth);
-                int localsCount = locals.size() - localsStart;
+                int localsCount = locals.size() - localsStart; // localsCount should be relative to parameters within same blockDepth
 
                 return args -> {
                     Cell bodyCell = bodyExpression.apply(args);
@@ -1181,6 +1177,10 @@ public class MainView extends JFrame implements Canvas {
                                 Function<Object[], Object> body = (Function<Object[], Object>)v;
                                 Object next = new BlockClosure(body, args, localsStart, localsCount);
 
+                                if(depth > 0) {
+                                    Object val = next;
+                                    next = (Function<Object[], Object>) eArgs -> val;
+                                }
                                 consumer.next(next);
                             });
                         }
