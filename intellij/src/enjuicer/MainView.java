@@ -1354,8 +1354,8 @@ public class MainView extends JFrame implements Canvas {
 
                         Cell<Object> value = valueExpression.apply(sArgs);
                         Binding binding = value.consume(null, currentTarget);
-
                         currentTarget.setBinding(binding);
+                        currentTarget.setDescription(new Description(idToCellMap, srcCode));
 
                     };
                 } else {
