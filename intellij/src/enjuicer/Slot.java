@@ -16,7 +16,7 @@ public class Slot<T> implements Cell<T>, CellConsumer<T> {
     }
 
     @Override
-    public Binding consume(Object[] args, CellConsumer<T> consumer) {
+    public Binding consume(CellConsumer<T> consumer) {
         consumer.next(currentValue);
         consumers.add(consumer);
 
@@ -58,11 +58,5 @@ public class Slot<T> implements Cell<T>, CellConsumer<T> {
     @Override
     public Object getDescription() {
         return description;
-    }
-
-    @Override
-    public T value(Object[] args) {
-        //return currentValue;
-        return currentValue;
     }
 }

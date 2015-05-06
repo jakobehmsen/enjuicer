@@ -6,7 +6,7 @@ public abstract class BufferedCell<T> implements Cell<T> {
     private ArrayList<CellConsumer<T>> consumers = new ArrayList();
 
     @Override
-    public Binding consume(Object[] args, CellConsumer<T> consumer) {
+    public Binding consume(CellConsumer<T> consumer) {
         consumers.add(consumer);
 
         supplyTo(consumer);

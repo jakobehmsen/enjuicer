@@ -320,7 +320,7 @@ public class MainView extends JFrame implements Canvas {
         }
 
         @Override
-        public Binding consume(Object[] args, CellConsumer<Map<SpecificSelector, SpecificFunctionInfo>> consumer) {
+        public Binding consume(CellConsumer<Map<SpecificSelector, SpecificFunctionInfo>> consumer) {
             consumers.add(consumer);
 
             consumer.next((Map<SpecificSelector, SpecificFunctionInfo>) applicableSpecificFunctions.clone());
@@ -343,11 +343,6 @@ public class MainView extends JFrame implements Canvas {
                 return candidates.get(0);
             }
 
-            return null;
-        }
-
-        @Override
-        public Map<SpecificSelector, SpecificFunctionInfo> value(Object[] args) {
             return null;
         }
     }
@@ -451,7 +446,7 @@ public class MainView extends JFrame implements Canvas {
         }
 
         @Override
-        public Binding consume(Object[] args, CellConsumer<Map<SpecificSelector, SpecificRelationInfo>> consumer) {
+        public Binding consume(CellConsumer<Map<SpecificSelector, SpecificRelationInfo>> consumer) {
             consumers.add(consumer);
 
             consumer.next((Map<SpecificSelector, SpecificRelationInfo>) applicableSpecificRelations.clone());
@@ -474,11 +469,6 @@ public class MainView extends JFrame implements Canvas {
                 return candidates.get(0);
             }
 
-            return null;
-        }
-
-        @Override
-        public Map<SpecificSelector, SpecificRelationInfo> value(Object[] args) {
             return null;
         }
     }
@@ -536,9 +526,9 @@ public class MainView extends JFrame implements Canvas {
             return new Tuple(newValues);
         });
         define("apply", Tuple.class, BlockClosure.class, (tuple, reduction) ->
-            Arrays.asList(tuple.values).stream().reduce((x, y) ->
-                reduction.value(new Object[]{x, y})
-            ).get()
+                Arrays.asList(tuple.values).stream().reduce((x, y) ->
+                        reduction.value(new Object[]{x, y})
+                ).get()
         );
         define("map", Tuple.class, BlockClosure.class, (tuple, reduction) ->
             new Tuple(Arrays.asList(tuple.values).stream().map(x -> reduction.value(new Object[]{x})).toArray())
@@ -974,16 +964,11 @@ public class MainView extends JFrame implements Canvas {
                     else
                         return eArgs -> new Cell() {
                             @Override
-                            public Binding consume(Object[] args, CellConsumer consumer) {
-                                return propertyCell.consume(null, v -> {
+                            public Binding consume(CellConsumer consumer) {
+                                return propertyCell.consume(v -> {
                                     Function<Object[], Object> expression = eArgs2 -> v;
                                     consumer.next(expression);
                                 });
-                            }
-
-                            @Override
-                            public Object value(Object[] args) {
-                                return null;
                             }
                         };
                 }
@@ -1015,16 +1000,11 @@ public class MainView extends JFrame implements Canvas {
                     else
                         return eArgs -> new Cell() {
                             @Override
-                            public Binding consume(Object[] args, CellConsumer consumer) {
-                                return cell.consume(null, v -> {
+                            public Binding consume(CellConsumer consumer) {
+                                return cell.consume(v -> {
                                     Function<Object[], Object> expression = eArgs2 -> v;
                                     consumer.next(expression);
                                 });
-                            }
-
-                            @Override
-                            public Object value(Object[] args) {
-                                return null;
                             }
                         };
                 }
@@ -1034,16 +1014,11 @@ public class MainView extends JFrame implements Canvas {
                 else
                     return args -> new Cell() {
                         @Override
-                        public Binding consume(Object[] args, CellConsumer consumer) {
+                        public Binding consume(CellConsumer consumer) {
                             Function<Object[], Object> expression = args2 -> args2[ordinal];
                             consumer.next(expression);
 
                             return () -> { };
-                        }
-
-                        @Override
-                        public Object value(Object[] args) {
-                            return null;
                         }
                     };
             }
@@ -1057,16 +1032,11 @@ public class MainView extends JFrame implements Canvas {
                 else
                     return args -> new Cell() {
                         @Override
-                        public Binding consume(Object[] args, CellConsumer consumer) {
+                        public Binding consume(CellConsumer consumer) {
                             Function<Object[], Object> expression = args2 -> value;
                             consumer.next(expression);
 
                             return () -> { };
-                        }
-
-                        @Override
-                        public Object value(Object[] args) {
-                            return null;
                         }
                     };
             }
@@ -1081,16 +1051,11 @@ public class MainView extends JFrame implements Canvas {
                 else
                     return args -> new Cell() {
                         @Override
-                        public Binding consume(Object[] args, CellConsumer consumer) {
+                        public Binding consume(CellConsumer consumer) {
                             Function<Object[], Object> expression = args2 -> value;
                             consumer.next(expression);
 
                             return () -> { };
-                        }
-
-                        @Override
-                        public Object value(Object[] args) {
-                            return null;
                         }
                     };
             }
@@ -1107,14 +1072,14 @@ public class MainView extends JFrame implements Canvas {
 
                     return new Cell() {
                         @Override
-                        public Binding consume(Object[] args, CellConsumer consumer) {
+                        public Binding consume(CellConsumer consumer) {
                             return new Binding() {
                                 private java.util.List<Object> expressionArguments = new ArrayList<>();
                                 private java.util.List<Binding> bindings;
 
                                 {
                                     IntStream.range(0, valueCells.size()).forEach(i -> expressionArguments.add(null));
-                                    bindings = IntStream.range(0, valueCells.size()).mapToObj(i -> valueCells.get(i).consume(args, next -> {
+                                    bindings = IntStream.range(0, valueCells.size()).mapToObj(i -> valueCells.get(i).consume(next -> {
                                         expressionArguments.set(i, next);
                                         update();
                                     })).collect(Collectors.toList());
@@ -1147,12 +1112,6 @@ public class MainView extends JFrame implements Canvas {
                                 }
                             };
                         }
-
-                        @Override
-                        public Object value(Object[] args) {
-                            //return new Tuple(valueCells.stream().map(x -> x.value(args)).toArray(s -> new Object[s]));
-                            return null;
-                        }
                     };
                 };
             }
@@ -1172,8 +1131,8 @@ public class MainView extends JFrame implements Canvas {
                     Cell bodyCell = bodyExpression.apply(args);
                     return new Cell() {
                         @Override
-                        public Binding consume(Object[] args2, CellConsumer consumer) {
-                            return bodyCell.consume(args, v -> {
+                        public Binding consume(CellConsumer consumer) {
+                            return bodyCell.consume(v -> {
                                 Function<Object[], Object> body = (Function<Object[], Object>)v;
                                 Object next = new BlockClosure(body, args, localsStart, localsCount);
 
@@ -1183,11 +1142,6 @@ public class MainView extends JFrame implements Canvas {
                                 }
                                 consumer.next(next);
                             });
-                        }
-
-                        @Override
-                        public Object value(Object[] args) {
-                            return null;
                         }
                     };
                 };
@@ -1234,7 +1188,7 @@ public class MainView extends JFrame implements Canvas {
 
                     return new Cell<Function<Object[], Object>>() {
                         @Override
-                        public Binding consume(Object[] args, CellConsumer<Function<Object[], Object>> consumer) {
+                        public Binding consume(CellConsumer<Function<Object[], Object>> consumer) {
                             Function<Object[], Object> expression = eArgs ->
                                 ((SlotComponent) cell).propertyExpression(propertyName);
 
@@ -1243,17 +1197,12 @@ public class MainView extends JFrame implements Canvas {
                             return () -> {
                             };
                         }
-
-                        @Override
-                        public Function<Object[], Object> value(Object[] args) {
-                            return null;
-                        }
                     };
                 }
 
                 return new Cell<Function<Object[], Object>>() {
                     @Override
-                    public Binding consume(Object[] args, CellConsumer<Function<Object[], Object>> consumer) {
+                    public Binding consume(CellConsumer<Function<Object[], Object>> consumer) {
                         Function<Object[], Object> expression = eArgs -> {
                             Object cell = eArgs[ordinal];
                             return ((SlotComponent) cell).propertyExpression(propertyName);
@@ -1264,20 +1213,61 @@ public class MainView extends JFrame implements Canvas {
                         return () -> {
                         };
                     }
-
-                    @Override
-                    public Function<Object[], Object> value(Object[] args) {
-                        return null;
-                    }
                 };
             }
         });
     }
 
-    private Consumer<Object[]> parseStatement2(ParserRuleContext statementCtx, ArrayList<VariableInfo> locals, int depth, boolean atRoot) {
-        return statementCtx.accept(new LangBaseVisitor<Consumer<Object[]>>() {
+    // TODO: Pass a bindings collector, where these bindings are to used in context with relation call/relation updates.
+    // I.e., when a relation is updated, then each of its relation usages should remove its previous bindings and reapply
+    // the relation.
+    // Can the bindings removal be implicit?
+    // What about contradicting relations?
+    // Should they cancel out each other?
+    // Should errors occur?
+    // Should they implicitly "merge" somehow? It's just OK?
+
+    // Could return Function<Object[], Binding> such that the execution of a statement yields a binding for that
+    // respective statement
+
+    // Cell<Statement>; should produce new statements if the body of the statements changes (not the provoked side-effects when executed)
+    private Cell<Consumer<Object[]>> parseStatement2(ParserRuleContext statementCtx, ArrayList<VariableInfo> locals, int depth, boolean atRoot) {
+        return statementCtx.accept(new LangBaseVisitor<Cell<Consumer<Object[]>>>() {
             @Override
-            public Consumer<Object[]> visitAssign(@NotNull LangParser.AssignContext ctx) {
+            public Cell<Consumer<Object[]>> visitPropertyAssign(@NotNull LangParser.PropertyAssignContext ctx) {
+                String targetName = ctx.target.ID().getText();
+                String propertyName = ctx.name.ID().getText();
+
+                int ordinal = localOrdinal(locals, targetName, depth);
+
+                Map<String, Cell> idToCellMap = new Hashtable<>();
+                Function<Object[], Cell> valueExpression = parseExpression(ctx.expression(), idToCellMap, locals, 0);
+
+                boolean isFromSelection = ordinal == -1;
+
+                if (isFromSelection) {
+                    SlotComponent currentTarget = (SlotComponent) environment.get(targetName);
+
+                    if (atRoot) {
+                        // If there already is a binding for this property, then remove this binding
+                        // Binding is implicitly removed within propertyAssign
+                    }
+
+                    return new Singleton<>(args -> {
+                        Cell value = valueExpression.apply(args);
+                        currentTarget.propertyAssign(propertyName, value);
+                    });
+                }
+
+                return new Singleton<>(args -> {
+                    Object cell = args[ordinal];
+                    Cell value = valueExpression.apply(args);
+                    ((SlotComponent) cell).propertyAssign(propertyName, value);
+                });
+            }
+
+            @Override
+            public Cell<Consumer<Object[]>> visitAssign(@NotNull LangParser.AssignContext ctx) {
                 Map<String, Cell> idToCellMap = new Hashtable<>();
 
                 String variableName = ctx.ID().getText();
@@ -1286,7 +1276,7 @@ public class MainView extends JFrame implements Canvas {
                 String srcCode = ctx.getText();
 
                 if (atRoot || environment.containsKey(variableName)) {
-                    return sArgs -> {
+                    Consumer<Object[]> statement = sArgs -> {
                         CellConsumer<Object> environmentCell = (CellConsumer<Object>) environment.get(variableName);
 
                         SlotComponent newElement;
@@ -1353,22 +1343,24 @@ public class MainView extends JFrame implements Canvas {
                         CellConsumer<Object> currentTarget = environmentCell;
 
                         Cell<Object> value = valueExpression.apply(sArgs);
-                        Binding binding = value.consume(null, currentTarget);
+                        Binding binding = value.consume(currentTarget);
                         currentTarget.setBinding(binding);
                         currentTarget.setDescription(new Description(idToCellMap, srcCode));
 
                     };
+
+                    return new Singleton<>(statement);
                 } else {
                     int ordinal = localOrdinal(locals, variableName, depth);
-                    return sArgs -> {
+                    return new Singleton<>(sArgs -> {
                         Cell<Object> value = valueExpression.apply(sArgs);
                         sArgs[ordinal] = value;
-                    };
+                    });
                 }
             }
 
             @Override
-            public Consumer<Object[]> visitFunction(@NotNull LangParser.FunctionContext ctx) {
+            public Cell<Consumer<Object[]>> visitFunction(@NotNull LangParser.FunctionContext ctx) {
                 String functionName = ctx.ID().getText();
 
                 ArrayList<VariableInfo> functionLocals = new ArrayList<>();
@@ -1381,21 +1373,76 @@ public class MainView extends JFrame implements Canvas {
                 Stream<VariableInfo> parameters = functionLocals.stream().filter(x -> x.depth == 0);
                 Class<?>[] parameterTypes = parameters.map(x -> x.type).toArray(s -> new Class<?>[s]);
 
-                return args -> {
+                return new Singleton<>(args -> {
                     if (atRoot) {
                         Binding existingBinding = functionBindings.get(new Selector(functionName, parameterTypes));
                         if (existingBinding != null)
                             existingBinding.remove();
                     }
 
-                    Binding binding = cellBody.consume(null, cellBodyExpression -> {
+                    Binding binding = cellBody.consume(cellBodyExpression -> {
                         define(functionName, parameterTypes, functionLocals.size(), cellBodyExpression);
                     });
 
                     if (atRoot)
                         functionBindings.put(new Selector(functionName, parameterTypes), binding);
+                });
+            }
+
+            /*
+            @Override
+            public Consumer<Object[]> visitRelation(@NotNull LangParser.RelationContext ctx) {
+                String relationName = ctx.ID().getText();
+
+                ArrayList<VariableInfo> relationLocals = new ArrayList<>();
+                if (ctx.parameters() != null)
+                    relationLocals.addAll(ctx.parameters().ID().stream().map(x -> new VariableInfo(Object.class, x.getText(), 0)).collect(Collectors.toList()));
+
+                List<Consumer<Object[]>> statements = ctx.statement().stream().map(x -> parseStatement2(x, relationLocals, 0, false)).collect(Collectors.toList());
+                Stream<VariableInfo> parameters = relationLocals.stream().filter(x -> x.depth == 0);
+                Class<?>[] parameterTypes = parameters.map(x -> x.type).toArray(s -> new Class<?>[s]);
+
+                return args -> {
+                    if (atRoot) {
+                        //Binding existingBinding = relationBindings.get(new Selector(relationName, parameterTypes));
+                        //if (existingBinding != null)
+                        //    existingBinding.remove();
+                    }
+
+                    Consumer<Object[]> body = bodyArgs ->
+                        statements.forEach(x ->
+                            x.accept(bodyArgs));
+                    defineRelation(relationName, parameterTypes, relationLocals.size(), body);
+
+                    //if (atRoot)
+                    //    relationBindings.put(new Selector(relationName, parameterTypes), binding);
                 };
             }
+            */
+
+            /*@Override
+            public Consumer<Object[]> visitRelationCall(@NotNull LangParser.RelationCallContext ctx) {
+                String relationName = ctx.name.getText();
+
+                java.util.List<Cell<Function<Object[], Object>>> argumentCells = ctx.id().stream().skip(1).map(x -> {
+                    String argumentName = x.ID().getText();
+                    int ordinal = localOrdinal(locals, argumentName, depth);
+
+                    boolean isFromSelection = ordinal == -1;
+
+                    if (isFromSelection) {
+                        SlotComponent currentTarget = (SlotComponent) environment.get(argumentName);
+
+                        Function<Object[], Object> expression = args -> currentTarget;
+                        return new Singleton<>(expression);
+                    } else {
+                        Function<Object[], Object> expression = args -> args[ordinal];
+                        return new Singleton<>(expression);
+                    }
+                }).collect(Collectors.toList());// .toArray(s -> new Function[s]);
+
+                return createStatementRelationCall2(relationName, argumentCells);
+            }*/
         });
     }
 
@@ -1423,21 +1470,16 @@ public class MainView extends JFrame implements Canvas {
 
                     return new Cell<Consumer<Object[]>>() {
                         @Override
-                        public Binding consume(Object[] args, CellConsumer<Consumer<Object[]>> consumer) {
-                            return source.consume(null, valueExpression -> {
+                        public Binding consume(CellConsumer<Consumer<Object[]>> consumer) {
+                            return source.consume(valueExpression -> {
                                 Consumer<Object[]> statement = sArgs -> {
-                                    Object cell = args[ordinal];
+                                    Object cell = sArgs[ordinal];
                                     Object value = valueExpression.apply(sArgs);
                                     ((SlotComponent) cell).propertyAssign(sArgs, propertyName, value);
                                 };
 
                                 consumer.next(statement);
                             });
-                        }
-
-                        @Override
-                        public Consumer<Object[]> value(Object[] args) {
-                            return null;
                         }
                     };
 
@@ -1478,23 +1520,18 @@ public class MainView extends JFrame implements Canvas {
 
                 return new Cell<Consumer<Object[]>>() {
                     @Override
-                    public Binding consume(Object[] args, CellConsumer<Consumer<Object[]>> consumer) {
-                        return source.consume(null, valueExpression -> {
+                    public Binding consume(CellConsumer<Consumer<Object[]>> consumer) {
+                        return source.consume(valueExpression -> {
                             Consumer<Object[]> statement = sArgs -> {
                                 //
 
                                 Object cell = sArgs[ordinal];
                                 Cell<Function<Object[], Object>> propertyCell = (Cell<Function<Object[], Object>>) valueExpression.apply(sArgs);
-                                ((SlotComponent) cell).propertyAssign(sArgs, propertyName, propertyCell);
+                                ((SlotComponent) cell).propertyAssign(propertyName, propertyCell);
                             };
 
                             consumer.next(statement);
                         });
-                    }
-
-                    @Override
-                    public Consumer<Object[]> value(Object[] args) {
-                        return null;
                     }
                 };
 
@@ -1518,7 +1555,7 @@ public class MainView extends JFrame implements Canvas {
                 if (atRoot || environment.containsKey(variableName)) {
                     return new Cell<Consumer<Object[]>>() {
                         @Override
-                        public Binding consume(Object[] args, CellConsumer<Consumer<Object[]>> consumer) {
+                        public Binding consume(CellConsumer<Consumer<Object[]>> consumer) {
                             CellConsumer<Object> environmentCell = (CellConsumer<Object>) environment.get(variableName);
 
                             SlotComponent newElement;
@@ -1584,7 +1621,7 @@ public class MainView extends JFrame implements Canvas {
 
                             CellConsumer<Object> currentTarget = environmentCell;
 
-                            Binding binding = source.consume(null, valueExpression -> {
+                            Binding binding = source.consume(valueExpression -> {
                                 Consumer<Object[]> statement = sArgs -> {
                                     Object result = valueExpression.apply(sArgs);
                                     currentTarget.next(result);
@@ -1598,19 +1635,14 @@ public class MainView extends JFrame implements Canvas {
 
                             return binding;
                         }
-
-                        @Override
-                        public Consumer<Object[]> value(Object[] args) {
-                            return null;
-                        }
                     };
                 } else {
                     int ordinal = localOrdinal(locals, variableName, depth);
 
                     return new Cell<Consumer<Object[]>>() {
                         @Override
-                        public Binding consume(Object[] args, CellConsumer<Consumer<Object[]>> consumer) {
-                            return source.consume(null, valueExpression -> {
+                        public Binding consume(CellConsumer<Consumer<Object[]>> consumer) {
+                            return source.consume(valueExpression -> {
                                 Consumer<Object[]> statement = sArgs -> {
                                     Object value = valueExpression.apply(sArgs);
                                     sArgs[ordinal] = value;
@@ -1618,11 +1650,6 @@ public class MainView extends JFrame implements Canvas {
 
                                 consumer.next(statement);
                             });
-                        }
-
-                        @Override
-                        public Consumer<Object[]> value(Object[] args) {
-                            return null;
                         }
                     };
                 }
@@ -1658,14 +1685,14 @@ public class MainView extends JFrame implements Canvas {
 
                 return new Cell<Consumer<Object[]>>() {
                     @Override
-                    public Binding consume(Object[] args, CellConsumer<Consumer<Object[]>> consumer) {
+                    public Binding consume(CellConsumer<Consumer<Object[]>> consumer) {
                         if (atRoot) {
                             Binding existingBinding = functionBindings.get(new Selector(functionName, parameterTypes));
                             if (existingBinding != null)
                                 existingBinding.remove();
                         }
 
-                        Binding binding = cellBody.consume(null, cellBodyExpression -> {
+                        Binding binding = cellBody.consume(cellBodyExpression -> {
                             define(functionName, parameterTypes, functionLocals.size(), cellBodyExpression);
                         });
 
@@ -1673,11 +1700,6 @@ public class MainView extends JFrame implements Canvas {
                             functionBindings.put(new Selector(functionName, parameterTypes), binding);
 
                         return binding;
-                    }
-
-                    @Override
-                    public Consumer<Object[]> value(Object[] args) {
-                        return null;
                     }
                 };
             }
@@ -1698,7 +1720,7 @@ public class MainView extends JFrame implements Canvas {
                     private Consumer<Object[]>[] statements = new Consumer[statementCells.size()];
 
                     @Override
-                    public Binding consume(Object[] args, CellConsumer<Consumer<Object[]>> consumer) {
+                    public Binding consume(CellConsumer<Consumer<Object[]>> consumer) {
                         if (atRoot) {
                             Binding existingBinding = relationBindings.get(new Selector(relationName, parameterTypes));
                             if (existingBinding != null)
@@ -1708,7 +1730,7 @@ public class MainView extends JFrame implements Canvas {
                         // Have a binding for each statement
                         List<Binding> bindings = IntStream.range(0, statements.length).mapToObj(i -> {
                             Cell<Consumer<Object[]>> statementCell = statementCells.get(i);
-                            return statementCell.consume(null, statement -> {
+                            return statementCell.consume(statement -> {
                                 statements[i] = statement;
                                 update();
                             });
@@ -1734,11 +1756,6 @@ public class MainView extends JFrame implements Canvas {
                                     x.accept(args));
                             defineRelation(relationName, parameterTypes, relationLocals.size(), body);
                         }
-                    }
-
-                    @Override
-                    public Consumer<Object[]> value(Object[] args) {
-                        return null;
                     }
                 };
 
@@ -1827,9 +1844,12 @@ public class MainView extends JFrame implements Canvas {
         programCtx.statement().stream().forEach(x -> {
             ArrayList<VariableInfo> locals = new ArrayList<VariableInfo>();
             //Cell<Consumer<Object[]>> statementCell = parseStatement(x, locals, 0, true);
-            Consumer<Object[]> statement = parseStatement2(x, locals, 0, true);
-            Object[] args = new Object[locals.size()];
-            statement.accept(args);
+            //Consumer<Object[]> statement = parseStatement2(x, locals, 0, true);
+            Cell<Consumer<Object[]>> statementCell = parseStatement2(x, locals, 0, true);
+            statementCell.consume(statement -> {
+                Object[] args = new Object[locals.size()];
+                statement.accept(args);
+            });
 
             /*// Each time the statement's (constraint's) content is changed, it is refired (maintained)
             statementCell.consume(null, statement -> {
@@ -1843,12 +1863,7 @@ public class MainView extends JFrame implements Canvas {
         // Return cells that provides expressions that provides function call expressions
         return new Cell<Function<Object[], Object>>() {
             @Override
-            public Binding consume(Object[] args, CellConsumer<Function<Object[], Object>> consumer) {
-                return null;
-            }
-
-            @Override
-            public Function<Object[], Object> value(Object[] args) {
+            public Binding consume(CellConsumer<Function<Object[], Object>> consumer) {
                 return null;
             }
         };
@@ -1860,7 +1875,7 @@ public class MainView extends JFrame implements Canvas {
 
             return new Cell() {
                 @Override
-                public Binding consume(Object[] args, CellConsumer consumer) {
+                public Binding consume(CellConsumer consumer) {
                     return new Binding() {
                         private GenericFunction functionBinding = getFunction(new GenericSelector(name, argumentCells.size()));
                         private Object[] expressionArguments = new Object[argumentCells.size()];
@@ -1869,11 +1884,11 @@ public class MainView extends JFrame implements Canvas {
                         private Map<SpecificSelector, SpecificFunctionInfo> functions;
 
                         {
-                            functionBindingBinding = functionBinding.consume(null, f -> {
+                            functionBindingBinding = functionBinding.consume(f -> {
                                 this.functions = f;
                                 update();
                             });
-                            bindings = IntStream.range(0, argumentCells.size()).mapToObj(i -> argumentCells.get(i).consume(args, next -> {
+                            bindings = IntStream.range(0, argumentCells.size()).mapToObj(i -> argumentCells.get(i).consume(next -> {
                                 expressionArguments[i] = next;
                                 update();
                             })).collect(Collectors.toList());
@@ -1938,11 +1953,6 @@ public class MainView extends JFrame implements Canvas {
                         }
                     };
                 }
-
-                @Override
-                public Object value(Object[] args) {
-                    return null;
-                }
             };
         };
     }
@@ -1950,7 +1960,7 @@ public class MainView extends JFrame implements Canvas {
     private Cell<Function<Object[], Object>> createExpressionFunctionCall(String name, java.util.List<Cell<Function<Object[], Object>>> argumentCells) {
         return new Cell<Function<Object[], Object>>() {
             @Override
-            public Binding consume(Object[] args, CellConsumer<Function<Object[], Object>> consumer) {
+            public Binding consume(CellConsumer<Function<Object[], Object>> consumer) {
                 return new Binding() {
                     private GenericFunction functionBinding = getFunction(new GenericSelector(name, argumentCells.size()));
                     private Function<Object[], Object>[] expressionArguments = (Function<Object[], Object>[])new Function[argumentCells.size()];
@@ -1959,11 +1969,11 @@ public class MainView extends JFrame implements Canvas {
                     private Map<SpecificSelector, SpecificFunctionInfo> functions;
 
                     {
-                        functionBindingBinding = functionBinding.consume(null, f -> {
+                        functionBindingBinding = functionBinding.consume(f -> {
                             this.functions = f;
                             update();
                         });
-                        bindings = IntStream.range(0, argumentCells.size()).mapToObj(i -> argumentCells.get(i).consume(args, next -> {
+                        bindings = IntStream.range(0, argumentCells.size()).mapToObj(i -> argumentCells.get(i).consume(next -> {
                             expressionArguments[i] = next;
                             update();
                         })).collect(Collectors.toList());
@@ -2007,18 +2017,13 @@ public class MainView extends JFrame implements Canvas {
                     }
                 };
             }
-
-            @Override
-            public Function<Object[], Object> value(Object[] args) {
-                return null;
-            }
         };
     }
 
-    private Cell<Consumer<Object[]>> createStatementRelationCall(String name, java.util.List<Cell<Function<Object[], Object>>> argumentCells) {
+    private Cell<Consumer<Object[]>> createStatementRelationCall2(String name, java.util.List<Cell<Function<Object[], Object>>> argumentCells) {
         return new Cell<Consumer<Object[]>>() {
             @Override
-            public Binding consume(Object[] args, CellConsumer<Consumer<Object[]>> consumer) {
+            public Binding consume(CellConsumer<Consumer<Object[]>> consumer) {
                 return new Binding() {
                     private GenericRelation genericRelation = getRelation(new GenericSelector(name, argumentCells.size()));
                     private Function<Object[], Object>[] expressionArguments = (Function<Object[], Object>[])new Function[argumentCells.size()];
@@ -2027,11 +2032,11 @@ public class MainView extends JFrame implements Canvas {
                     private Map<SpecificSelector, SpecificRelationInfo> specificRelations;
 
                     {
-                        genericRelationBinding = genericRelation.consume(null, f -> {
+                        genericRelationBinding = genericRelation.consume(f -> {
                             this.specificRelations = f;
                             update();
                         });
-                        bindings = IntStream.range(0, argumentCells.size()).mapToObj(i -> argumentCells.get(i).consume(args, next -> {
+                        bindings = IntStream.range(0, argumentCells.size()).mapToObj(i -> argumentCells.get(i).consume(next -> {
                             expressionArguments[i] = next;
                             update();
                         })).collect(Collectors.toList());
@@ -2073,10 +2078,66 @@ public class MainView extends JFrame implements Canvas {
                     }
                 };
             }
+        };
+    }
 
+    private Cell<Consumer<Object[]>> createStatementRelationCall(String name, java.util.List<Cell<Function<Object[], Object>>> argumentCells) {
+        return new Cell<Consumer<Object[]>>() {
             @Override
-            public Consumer<Object[]> value(Object[] args) {
-                return null;
+            public Binding consume(CellConsumer<Consumer<Object[]>> consumer) {
+                return new Binding() {
+                    private GenericRelation genericRelation = getRelation(new GenericSelector(name, argumentCells.size()));
+                    private Function<Object[], Object>[] expressionArguments = (Function<Object[], Object>[])new Function[argumentCells.size()];
+                    private Binding genericRelationBinding;
+                    private java.util.List<Binding> bindings;
+                    private Map<SpecificSelector, SpecificRelationInfo> specificRelations;
+
+                    {
+                        genericRelationBinding = genericRelation.consume(f -> {
+                            this.specificRelations = f;
+                            update();
+                        });
+                        bindings = IntStream.range(0, argumentCells.size()).mapToObj(i -> argumentCells.get(i).consume(next -> {
+                            expressionArguments[i] = next;
+                            update();
+                        })).collect(Collectors.toList());
+                    }
+
+                    private void update() {
+                        if(Arrays.asList(expressionArguments).stream().filter(x -> x == null).count() == 0) {
+                            Consumer<Object[]> next = args -> {
+                                Object[] callArgs = Arrays.asList(expressionArguments).stream().map(x -> x.apply(args)).toArray();
+                                Class<?>[] parameterTypes = Arrays.asList(callArgs).stream().map(x -> x.getClass()).toArray(s -> new Class<?>[callArgs.length]);
+
+                                if(specificRelations != null) {
+                                    SpecificRelationInfo relation = GenericRelation.resolve(specificRelations, parameterTypes);
+
+                                    if(relation != null) {
+                                        Object[] locals = new Object[relation.localCount];
+                                        for(int i = 0; i < callArgs.length; i++) {
+                                            if(callArgs[i] instanceof BlockClosure)
+                                                ((BlockClosure) callArgs[i]).setLocals(locals);
+                                        }
+                                        System.arraycopy(callArgs, 0, locals, 0, callArgs.length);
+
+                                        relation.body.accept(locals);
+                                    }
+                                }
+                            };
+
+                            consumer.next(next);
+                        }
+                    }
+
+                    @Override
+                    public void remove() {
+                        genericRelationBinding.remove();
+                        genericRelationBinding = null;
+                        bindings.forEach(x -> x.remove());
+                        expressionArguments = null;
+                        bindings = null;
+                    }
+                };
             }
         };
     }
@@ -2169,7 +2230,7 @@ public class MainView extends JFrame implements Canvas {
 
                 return new Cell<Function<Object[], Object>>() {
                     @Override
-                    public Binding consume(Object[] args, CellConsumer<Function<Object[], Object>> consumer) {
+                    public Binding consume(CellConsumer<Function<Object[], Object>> consumer) {
                         Function<Object[], Object> expression = eArgs -> {
                             Object cell = eArgs[ordinal];
                             return ((SlotComponent) cell).propertyExpression(propertyName);//.getValue();
@@ -2181,13 +2242,6 @@ public class MainView extends JFrame implements Canvas {
 
                         /*Object cell = args[ordinal];
                         return ((SlotComponent) cell).property(propertyName).consume(args, consumer);*/
-                    }
-
-                    @Override
-                    public Function<Object[], Object> value(Object[] args) {
-                        //Object cell = args[ordinal];
-                        //return ((SlotComponent) cell).property(propertyName).value(args);
-                        return null;
                     }
                 };
             }
@@ -2207,19 +2261,11 @@ public class MainView extends JFrame implements Canvas {
 
                     return new Cell<Function<Object[], Object>>() {
                         @Override
-                        public Binding consume(Object[] args, CellConsumer consumer) {
-                            return cell.consume(args, v -> {
+                        public Binding consume(CellConsumer consumer) {
+                            return cell.consume(v -> {
                                 Function<Object[], Object> expression = eArgs -> v;
                                 consumer.next(expression);
                             });
-                        }
-
-                        @Override
-                        public Function<Object[], Object> value(Object[] args) {
-                            /*Function<Object[], Object> expression = eArgs -> cell.value(args);
-                            return expression;*/
-
-                            return null;
                         }
                     };
                 }
@@ -2255,14 +2301,14 @@ public class MainView extends JFrame implements Canvas {
 
                 return new Cell<Function<Object[], Object>>() {
                     @Override
-                    public Binding consume(Object[] args, CellConsumer<Function<Object[], Object>> consumer) {
+                    public Binding consume(CellConsumer<Function<Object[], Object>> consumer) {
                         return new Binding() {
                             private java.util.List<Function<Object[], Object>> expressionArguments = new ArrayList<>();
                             private java.util.List<Binding> bindings;
 
                             {
                                 IntStream.range(0, valueCells.size()).forEach(i -> expressionArguments.add(null));
-                                bindings = IntStream.range(0, valueCells.size()).mapToObj(i -> valueCells.get(i).consume(args, next -> {
+                                bindings = IntStream.range(0, valueCells.size()).mapToObj(i -> valueCells.get(i).consume(next -> {
                                     expressionArguments.set(i, next);
                                     update();
                                 })).collect(Collectors.toList());
@@ -2289,12 +2335,6 @@ public class MainView extends JFrame implements Canvas {
                             }
                         };
                     }
-
-                    @Override
-                    public Function<Object[], Object> value(Object[] args) {
-                        //return new Tuple(valueCells.stream().map(x -> x.value(args)).toArray(s -> new Object[s]));
-                        return null;
-                    }
                 };
             }
 
@@ -2311,18 +2351,13 @@ public class MainView extends JFrame implements Canvas {
 
                 return new Cell<Function<Object[], Object>>() {
                     @Override
-                    public Binding consume(Object[] args, CellConsumer<Function<Object[], Object>> consumer) {
-                        return bodyCell.consume(args, v -> {
+                    public Binding consume(CellConsumer<Function<Object[], Object>> consumer) {
+                        return bodyCell.consume(v -> {
                             Function<Object[], Object> expression = eArgs ->
                                 new BlockClosure(v, eArgs, localsStart, localsCount);
 
                             consumer.next(expression);
                         });
-                    }
-
-                    @Override
-                    public Function<Object[], Object> value(Object[] args) {
-                        return null;
                     }
                 };
 

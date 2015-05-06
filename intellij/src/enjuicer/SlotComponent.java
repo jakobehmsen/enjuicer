@@ -40,14 +40,8 @@ public class SlotComponent extends JPanel implements Cell<Object>, CellConsumer<
     }*/
 
     @Override
-    public Binding consume(Object[] args, CellConsumer<Object> consumer) {
-        return slot.consume(args, consumer);
-    }
-
-    @Override
-    public Object value(Object[] args) {
-        //return slot.value(args);
-        return null;
+    public Binding consume(CellConsumer<Object> consumer) {
+        return slot.consume(consumer);
     }
 
     @Override
@@ -110,37 +104,19 @@ public class SlotComponent extends JPanel implements Cell<Object>, CellConsumer<
         return null;
     }
 
-    public void propertyAssign(Object[] args, String name, Cell<Function<Object[], Object>> expressionValueCell) {//Cell<Object> valueCell) {
+    public void propertyAssign(String name, Cell expressionValueCell) {
         Binding binding = propertyBindings.get(name);
 
         if(binding != null)
             binding.remove();
 
         Consumer propertyUpdater = propertyUpdater(name);
-        //binding = valueCell.consume(args, value -> propertyUpdater.accept(value));
-        binding = expressionValueCell.consume(args, expressionValue -> {
-            Object value = expressionValue.apply(args);
+        binding = expressionValueCell.consume(value -> {
             propertyUpdater.accept(value);
         });
 
         propertyBindings.put(name, binding);
     }
-
-    /*public void propertyAssign(Object[] args, String name, Cell<Object> valueCell) {
-        Binding binding = propertyBindings.get(name);
-
-        if(binding != null)
-            binding.remove();
-
-        Consumer propertyUpdater = propertyUpdater(name);
-        //binding = valueCell.consume(args, value -> propertyUpdater.accept(value));
-        binding = valueCell.consume(args, value -> {
-            //Object value = expressionValue.apply(args);
-            propertyUpdater.accept(value);
-        });
-
-        propertyBindings.put(name, binding);
-    }*/
 
     public void propertyAssign(Object[] args, String name, Object value) {//Cell<Object> valueCell) {
         Consumer propertyUpdater = propertyUpdater(name);
@@ -151,7 +127,7 @@ public class SlotComponent extends JPanel implements Cell<Object>, CellConsumer<
         ArrayList<CellConsumer<Function<Object[], Object>>> consumers = new ArrayList<>();
 
         @Override
-        public Binding consume(Object[] args, CellConsumer<Function<Object[], Object>> consumer) {
+        public Binding consume(CellConsumer<Function<Object[], Object>> consumer) {
             consumers.add(consumer);
             Function<Object[], Object> expression = eArgs -> getValue();
             consumer.next(expression);
@@ -168,11 +144,6 @@ public class SlotComponent extends JPanel implements Cell<Object>, CellConsumer<
         }
 
         protected abstract void clean();
-
-        @Override
-        public Function<Object[], Object> value(Object[] args) {
-            return null;
-        }
 
         protected abstract Object getValue();
     }
@@ -251,7 +222,7 @@ public class SlotComponent extends JPanel implements Cell<Object>, CellConsumer<
         ArrayList<CellConsumer> consumers = new ArrayList<>();
 
         @Override
-        public Binding consume(Object[] args, CellConsumer consumer) {
+        public Binding consume(CellConsumer consumer) {
             consumers.add(consumer);
             consumer.next(value(null));
             return () -> {
@@ -266,6 +237,8 @@ public class SlotComponent extends JPanel implements Cell<Object>, CellConsumer<
         }
 
         protected abstract void clean();
+
+        protected abstract Object value(Object[] args);
     }
 
     private abstract class ComponentListerPropertyCell extends PropertyCell {
@@ -297,7 +270,7 @@ public class SlotComponent extends JPanel implements Cell<Object>, CellConsumer<
         }
 
         protected void componentChanged() {
-            if(lastValue == null || !lastValue.equals(value(null)));
+            if(lastValue == null || !lastValue.equals(value(null)))
                 post();
             lastValue = value(null);
         }
@@ -308,28 +281,28 @@ public class SlotComponent extends JPanel implements Cell<Object>, CellConsumer<
             case "x":
                 return new ComponentListerPropertyCell() {
                     @Override
-                    public Object value(Object[] args) {
+                    protected Object value(Object[] args) {
                         return new BigDecimal(getX());
                     }
                 };
             case "y":
                 return new ComponentListerPropertyCell() {
                     @Override
-                    public Object value(Object[] args) {
+                    protected Object value(Object[] args) {
                         return new BigDecimal(getY());
                     }
                 };
             case "width":
                 return new ComponentListerPropertyCell() {
                     @Override
-                    public Object value(Object[] args) {
+                    protected Object value(Object[] args) {
                         return new BigDecimal(getWidth());
                     }
                 };
             case "height":
                 return new ComponentListerPropertyCell() {
                     @Override
-                    public Object value(Object[] args) {
+                    protected Object value(Object[] args) {
                         return new BigDecimal(getHeight());
                     }
                 };

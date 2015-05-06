@@ -64,14 +64,8 @@ public class LineTool extends AbstractTool {
         }
 
         @Override
-        public Binding consume(Object[] args, CellConsumer<enjuicer.Line> consumer) {
-            return slot.consume(args, consumer);
-        }
-
-        @Override
-        public enjuicer.Line value(Object[] args) {
-            //return slot.value(args);
-            return null;
+        public Binding consume(CellConsumer<enjuicer.Line> consumer) {
+            return slot.consume(consumer);
         }
 
         @Override

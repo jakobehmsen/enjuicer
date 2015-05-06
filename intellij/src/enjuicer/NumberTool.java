@@ -36,13 +36,8 @@ public class NumberTool extends AbstractTool {
         }
 
         @Override
-        public Binding consume(Object[] args, CellConsumer<BigDecimal> consumer) {
-            return slot.consume(args, consumer);
-        }
-
-        @Override
-        public BigDecimal value(Object[] args) {
-            return (BigDecimal)getValue();
+        public Binding consume(CellConsumer<BigDecimal> consumer) {
+            return slot.consume(consumer);
         }
 
         @Override
