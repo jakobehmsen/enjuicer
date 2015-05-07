@@ -866,7 +866,7 @@ public class MainView extends JFrame implements Canvas {
 
                 java.util.List<Function<Object[], Cell>> argumentCells = ctx.expression().stream().map(x -> parseExpression(x, idToCellMap, locals, depth)).collect(Collectors.toList());
 
-                return createExpressionFunctionCall2(name, argumentCells, depth);
+                return createExpressionFunctionCall(name, argumentCells, depth);
             }
 
             @Override
@@ -1075,75 +1075,6 @@ public class MainView extends JFrame implements Canvas {
         });
     }
 
-    private Cell<Function<Object[], Object>> reduceMetaExpressionCell(ParserRuleContext ctx, Map<String, Cell> idToCellMap, ArrayList<VariableInfo> locals, int depth) {
-        return ctx.accept(new LangBaseVisitor<Cell<Function<Object[], Object>>>() {
-            @Override
-            public Cell<Function<Object[], Object>> visitAddExpression(@NotNull LangParser.AddExpressionContext ctx) {
-                // Provide expressions that returns cells of expression
-
-                Cell<Function<Object[], Object>> lhs = reduceMetaExpressionCell(ctx.mulExpression(0), idToCellMap, locals, depth);
-
-                if (ctx.mulExpression().size() > 1) {
-                    for (int i = 1; i < ctx.mulExpression().size(); i++) {
-                        Cell<Function<Object[], Object>> rhsCell = reduceMetaExpressionCell(ctx.mulExpression(i), idToCellMap, locals, depth);
-
-                        Cell<Function<Object[], Object>> lhsCell = lhs;
-
-                        String operator = ctx.ADD_OP(i - 1).getText();
-
-                        lhs = createMetaExpressionBinaryOperation(operator, lhsCell, rhsCell);
-                    }
-                }
-
-                return lhs;
-            }
-
-            @Override
-            public Cell<Function<Object[], Object>> visitProperty(@NotNull LangParser.PropertyContext ctx) {
-                String propertyName = ctx.name.ID().getText();
-                String targetName = ctx.target.ID().getText();
-
-                int ordinal = localOrdinal(locals, targetName, depth);
-
-                boolean isFromSelection = ordinal == -1;
-
-                if (isFromSelection) {
-                    Cell cell = environment.get(targetName);
-
-                    idToCellMap.put(targetName, cell);
-
-                    return new Cell<Function<Object[], Object>>() {
-                        @Override
-                        public Binding consume(CellConsumer<Function<Object[], Object>> consumer) {
-                            Function<Object[], Object> expression = eArgs ->
-                                ((SlotComponent) cell).propertyExpression(propertyName);
-
-                            consumer.next(expression);
-
-                            return () -> {
-                            };
-                        }
-                    };
-                }
-
-                return new Cell<Function<Object[], Object>>() {
-                    @Override
-                    public Binding consume(CellConsumer<Function<Object[], Object>> consumer) {
-                        Function<Object[], Object> expression = eArgs -> {
-                            Object cell = eArgs[ordinal];
-                            return ((SlotComponent) cell).propertyExpression(propertyName);
-                        };
-
-                        consumer.next(expression);
-
-                        return () -> {
-                        };
-                    }
-                };
-            }
-        });
-    }
-
     // TODO: Pass a bindings collector, where these bindings are to used in context with relation call/relation updates.
     // I.e., when a relation is updated, then each of its relation usages should remove its previous bindings and reapply
     // the relation.
@@ -1157,7 +1088,7 @@ public class MainView extends JFrame implements Canvas {
     // respective statement
 
     // Cell<Statement>; should produce new statements if the body of the statements changes (not the provoked side-effects when executed)
-    private Cell<Consumer<Object[]>> parseStatement2(ParserRuleContext statementCtx, ArrayList<VariableInfo> locals, int depth, boolean atRoot) {
+    private Cell<Consumer<Object[]>> parseStatement(ParserRuleContext statementCtx, ArrayList<VariableInfo> locals, int depth, boolean atRoot) {
         return statementCtx.accept(new LangBaseVisitor<Cell<Consumer<Object[]>>>() {
             @Override
             public Cell<Consumer<Object[]>> visitPropertyAssign(@NotNull LangParser.PropertyAssignContext ctx) {
@@ -1287,6 +1218,7 @@ public class MainView extends JFrame implements Canvas {
             @Override
             public Cell<Consumer<Object[]>> visitFunction(@NotNull LangParser.FunctionContext ctx) {
                 String functionName = ctx.ID().getText();
+                int functionDepth = depth + 1;
 
                 ArrayList<VariableInfo> functionLocals = new ArrayList<>();
                 if (ctx.parameters() != null)
@@ -1294,8 +1226,10 @@ public class MainView extends JFrame implements Canvas {
 
                 ParserRuleContext bodyTree = ctx.expression();
 
-                Cell<Function<Object[], Object>> cellBody = reduceExpressionCell(bodyTree, new Hashtable<>(), functionLocals, 0);
-                Stream<VariableInfo> parameters = functionLocals.stream().filter(x -> x.depth == 0);
+                Function<Object[], Cell> cellBodyConstructor = parseExpression(bodyTree, new Hashtable<>(), functionLocals, functionDepth);
+
+                // Compare in relation to the given function depth
+                Stream<VariableInfo> parameters = functionLocals.stream().filter(x -> x.depth == functionDepth);
                 Class<?>[] parameterTypes = parameters.map(x -> x.type).toArray(s -> new Class<?>[s]);
 
                 return new Singleton<>(args -> {
@@ -1305,6 +1239,7 @@ public class MainView extends JFrame implements Canvas {
                             existingBinding.remove();
                     }
 
+                    Cell<Function<Object[], Object>> cellBody = (Cell<Function<Object[], Object>>)cellBodyConstructor.apply(args);
                     Binding binding = cellBody.consume(cellBodyExpression -> {
                         define(functionName, parameterTypes, functionLocals.size(), cellBodyExpression);
                     });
@@ -1322,7 +1257,7 @@ public class MainView extends JFrame implements Canvas {
                 if (ctx.parameters() != null)
                     relationLocals.addAll(ctx.parameters().ID().stream().map(x -> new VariableInfo(Object.class, x.getText(), 0)).collect(Collectors.toList()));
 
-                List<Cell<Consumer<Object[]>>> statementCells = ctx.statement().stream().map(x -> parseStatement2(x, relationLocals, 0, false)).collect(Collectors.toList());
+                List<Cell<Consumer<Object[]>>> statementCells = ctx.statement().stream().map(x -> parseStatement(x, relationLocals, 0, false)).collect(Collectors.toList());
                 Stream<VariableInfo> parameters = relationLocals.stream().filter(x -> x.depth == 0);
                 Class<?>[] parameterTypes = parameters.map(x -> x.type).toArray(s -> new Class<?>[s]);
 
@@ -1385,397 +1320,6 @@ public class MainView extends JFrame implements Canvas {
                     }
                 }).collect(Collectors.toList());
 
-                return createStatementRelationCall2(relationName, argumentCells);
-            }
-        });
-    }
-
-    private Cell<Consumer<Object[]>> parseStatement(ParserRuleContext statementCtx, ArrayList<VariableInfo> locals, int depth, boolean atRoot) {
-        return statementCtx.accept(new LangBaseVisitor<Cell<Consumer<Object[]>>>() {
-            @Override
-            public Cell<Consumer<Object[]>> visitPropertyAssign(@NotNull LangParser.PropertyAssignContext ctx) {
-                String targetName = ctx.target.ID().getText();
-                String propertyName = ctx.name.ID().getText();
-
-                int ordinal = localOrdinal(locals, targetName, depth);
-
-                Map<String, Cell> idToCellMap = new Hashtable<>();
-                //Cell<Object> source = (Cell<Object>) reduceSource(ctx.expression(), idToCellMap, locals, 0);
-                Cell<Function<Object[], Object>> source = reduceExpressionCell(ctx.expression(), idToCellMap, locals, 0);
-
-                boolean isFromSelection = ordinal == -1;
-
-                if (isFromSelection) {
-                    SlotComponent currentTarget = (SlotComponent) environment.get(targetName);
-
-                    if (atRoot) {
-                        // If there already is a binding for this property, then remove this binding
-                    }
-
-                    return new Cell<Consumer<Object[]>>() {
-                        @Override
-                        public Binding consume(CellConsumer<Consumer<Object[]>> consumer) {
-                            return source.consume(valueExpression -> {
-                                Consumer<Object[]> statement = sArgs -> {
-                                    Object cell = sArgs[ordinal];
-                                    Object value = valueExpression.apply(sArgs);
-                                    ((SlotComponent) cell).propertyAssign(sArgs, propertyName, value);
-                                };
-
-                                consumer.next(statement);
-                            });
-                        }
-                    };
-
-                    /*return args -> {
-
-                        currentTarget.propertyAssign(args, propertyName, source);
-                    };*/
-                }
-
-                // Must reduce expression to cell of cell of expression; right hand side must resolve to a cell, not a value
-                // Such cells, being resolved, are to produce expressions
-                //
-                //
-                Cell<Function<Object[], Object>> properSource = reduceMetaExpressionCell(ctx.expression(), idToCellMap, locals, 0);
-
-                /*
-
-                Generate code that produces a cell of expressions
-                Assignments are made in relation to cells
-                Properties (assignables) are bound to cells; stuff that changes over time
-                Evaluation is performed on cell level - contrasted to value level after relations have been construed
-
-                The generated code is represented by a cell, since parts of this code may change over time
-
-                E.g.
-
-                x.x = y.x + 10 =>
-
-                relation where x.x is assigned to cell representing y.x + 10
-                y.x is itself a cell, and thus rhs should resolve to a function call cell, where the first argument cell
-                is the property y.x and the second argument is the singleton cell 10.
-                The function call cell is derived upon evaluation of the property assignment statement
-
-                */
-
-                // Cell of cell of expression
-                // Provider of expressions that may change over time
-
-                return new Cell<Consumer<Object[]>>() {
-                    @Override
-                    public Binding consume(CellConsumer<Consumer<Object[]>> consumer) {
-                        return source.consume(valueExpression -> {
-                            Consumer<Object[]> statement = sArgs -> {
-                                //
-
-                                Object cell = sArgs[ordinal];
-                                Cell<Function<Object[], Object>> propertyCell = (Cell<Function<Object[], Object>>) valueExpression.apply(sArgs);
-                                ((SlotComponent) cell).propertyAssign(propertyName, propertyCell);
-                            };
-
-                            consumer.next(statement);
-                        });
-                    }
-                };
-
-
-                /*return args -> {
-                    Object cell = args[ordinal];
-                    ((SlotComponent) cell).propertyAssign(args, propertyName, source);
-                };*/
-            }
-
-            @Override
-            public Cell<Consumer<Object[]>> visitAssign(@NotNull LangParser.AssignContext ctx) {
-                Map<String, Cell> idToCellMap = new Hashtable<>();
-
-                String variableName = ctx.ID().getText();
-
-                //Cell<Object> source = (Cell<Object>) reduceSource(ctx.expression(), idToCellMap, locals, 0);
-                Cell<Function<Object[], Object>> source = (Cell<Function<Object[], Object>>) reduceExpressionCell(ctx.expression(), idToCellMap, locals, 0);
-                String srcCode = ctx.getText();
-
-                if (atRoot || environment.containsKey(variableName)) {
-                    return new Cell<Consumer<Object[]>>() {
-                        @Override
-                        public Binding consume(CellConsumer<Consumer<Object[]>> consumer) {
-                            CellConsumer<Object> environmentCell = (CellConsumer<Object>) environment.get(variableName);
-
-                            SlotComponent newElement;
-
-                            if (environmentCell != null) {
-                                environmentCell.getBinding().remove();
-                                idToCellMap.put(variableName, (Cell) environmentCell);
-                                newElement = null;
-                            } else {
-                                newElement = new SlotComponent(new SlotValueComponentFactory() {
-                                    boolean atFirst = true;
-
-                                    @Override
-                                    public SlotValueComponent createSlotComponentValue(JPanel wrapper, Slot slot, Object value) {
-                                        if (value instanceof BigDecimal) {
-                                            SlotValueComponent svc = createSlotNumber(slot, (BigDecimal) value);
-                                            if (atFirst) {
-                                                svc.getComponent().setSize(60, 20);
-                                                svc.getComponent().setLocation(nextOutX, nextOutY);
-
-                                                updateOuts(svc.getComponent().getWidth(), svc.getComponent().getHeight());
-                                            }
-                                            atFirst = false;
-                                            return svc;
-                                        } else if (value instanceof String) {
-                                            SlotValueComponent svc = createSlotText(slot, (String) value);
-                                            if (atFirst) {
-                                                svc.getComponent().setSize(60, 20);
-                                                svc.getComponent().setLocation(nextOutX, nextOutY);
-
-                                                updateOuts(svc.getComponent().getWidth(), svc.getComponent().getHeight());
-                                            }
-                                            atFirst = false;
-                                            return svc;
-                                        } else if (value instanceof Line) {
-                                            atFirst = false;
-                                            return createSlotLine(slot, (Line) value);
-                                        } else if (value instanceof Function) {
-                                            return ((Function<Function<Object, SlotValueComponent>, SlotValueComponent>) value).apply(v ->
-                                                createSlotComponentValue(wrapper, slot, v));
-                                        } else {
-                                            SlotValueComponent svc = createSlotDefault(slot, value);
-                                            if (atFirst) {
-                                                svc.getComponent().setSize(60, 20);
-                                                svc.getComponent().setLocation(nextOutX, nextOutY);
-
-                                                updateOuts(svc.getComponent().getWidth(), svc.getComponent().getHeight());
-                                            }
-                                            atFirst = false;
-                                            return svc;
-                                        }
-                                    }
-                                });
-
-                                newElement.setName(variableName);
-                                environmentCell = newElement;
-                                idToCellMap.put(variableName, newElement);
-                                canvasView.add(newElement);
-                                canvasView.moveToFront(newElement);
-
-                                select(newElement);
-                            }
-
-                            CellConsumer<Object> currentTarget = environmentCell;
-
-                            Binding binding = source.consume(valueExpression -> {
-                                Consumer<Object[]> statement = sArgs -> {
-                                    Object result = valueExpression.apply(sArgs);
-                                    currentTarget.next(result);
-                                    currentTarget.setDescription(new Description(idToCellMap, srcCode));
-                                };
-
-                                consumer.next(statement);
-                            });
-
-                            currentTarget.setBinding(binding);
-
-                            return binding;
-                        }
-                    };
-                } else {
-                    int ordinal = localOrdinal(locals, variableName, depth);
-
-                    return new Cell<Consumer<Object[]>>() {
-                        @Override
-                        public Binding consume(CellConsumer<Consumer<Object[]>> consumer) {
-                            return source.consume(valueExpression -> {
-                                Consumer<Object[]> statement = sArgs -> {
-                                    Object value = valueExpression.apply(sArgs);
-                                    sArgs[ordinal] = value;
-                                };
-
-                                consumer.next(statement);
-                            });
-                        }
-                    };
-                }
-            }
-
-            @Override
-            public Cell<Consumer<Object[]>> visitFunction(@NotNull LangParser.FunctionContext ctx) {
-                String functionName = ctx.ID().getText();
-
-                ArrayList<VariableInfo> functionLocals = new ArrayList<>();
-                if (ctx.parameters() != null)
-                    functionLocals.addAll(ctx.parameters().ID().stream().map(x -> new VariableInfo(Object.class, x.getText(), 0)).collect(Collectors.toList()));
-
-                ParserRuleContext bodyTree = ctx.expression();
-
-                //Cell<?> cellBody = reduceSource(bodyTree, new Hashtable<>(), functionLocals, 0);
-                Cell<Function<Object[], Object>> cellBody = reduceExpressionCell(bodyTree, new Hashtable<>(), functionLocals, 0);
-                //Function<Object[], Object> body = args -> cellBody.value(args);
-                Stream<VariableInfo> parameters = functionLocals.stream().filter(x -> x.depth == 0);
-                Class<?>[] parameterTypes = parameters.map(x -> x.type).toArray(s -> new Class<?>[s]);
-
-                /*
-                Function binding cells:
-                A function binding should be a cell itself which supplies versions of itself
-                A function binding relate a name and a parameter affinity (not their types)
-                - thus, a function binding is a provider of (possibly empty) sets of parameter sequence and their bodies/behaviors
-                - a function call consumes function binding corresponding to its name and parameter affinity
-                    - the body resolution is postponed till all arguments have been consumed and a non-empty set is provided
-                      by the function binding being consumed
-                */
-
-                // If there already is a binding for this selector function, then remove it?
-
-                return new Cell<Consumer<Object[]>>() {
-                    @Override
-                    public Binding consume(CellConsumer<Consumer<Object[]>> consumer) {
-                        if (atRoot) {
-                            Binding existingBinding = functionBindings.get(new Selector(functionName, parameterTypes));
-                            if (existingBinding != null)
-                                existingBinding.remove();
-                        }
-
-                        Binding binding = cellBody.consume(cellBodyExpression -> {
-                            define(functionName, parameterTypes, functionLocals.size(), cellBodyExpression);
-                        });
-
-                        if (atRoot)
-                            functionBindings.put(new Selector(functionName, parameterTypes), binding);
-
-                        return binding;
-                    }
-                };
-            }
-
-            @Override
-            public Cell<Consumer<Object[]>> visitRelation(@NotNull LangParser.RelationContext ctx) {
-                String relationName = ctx.ID().getText();
-
-                ArrayList<VariableInfo> relationLocals = new ArrayList<>();
-                if (ctx.parameters() != null)
-                    relationLocals.addAll(ctx.parameters().ID().stream().map(x -> new VariableInfo(Object.class, x.getText(), 0)).collect(Collectors.toList()));
-
-                List<Cell<Consumer<Object[]>>> statementCells = ctx.statement().stream().map(x -> parseStatement(x, relationLocals, 0, false)).collect(Collectors.toList());
-                Stream<VariableInfo> parameters = relationLocals.stream().filter(x -> x.depth == 0);
-                Class<?>[] parameterTypes = parameters.map(x -> x.type).toArray(s -> new Class<?>[s]);
-
-                return new Cell<Consumer<Object[]>>() {
-                    private Consumer<Object[]>[] statements = new Consumer[statementCells.size()];
-
-                    @Override
-                    public Binding consume(CellConsumer<Consumer<Object[]>> consumer) {
-                        if (atRoot) {
-                            Binding existingBinding = relationBindings.get(new Selector(relationName, parameterTypes));
-                            if (existingBinding != null)
-                                existingBinding.remove();
-                        }
-
-                        // Have a binding for each statement
-                        List<Binding> bindings = IntStream.range(0, statements.length).mapToObj(i -> {
-                            Cell<Consumer<Object[]>> statementCell = statementCells.get(i);
-                            return statementCell.consume(statement -> {
-                                statements[i] = statement;
-                                update();
-                            });
-                        }).collect(Collectors.toList());
-                        Binding binding = () -> bindings.forEach(x -> x.remove());
-                        //List<Binding> bindings = statementCells.stream().map(x -> x.consume(null, statement -> { })).collect(Collectors.toList());
-
-                        /*Binding binding = cellBody.consume(null, cellBodyExpression -> {
-                            //defineRelation(relationName, parameterTypes, relationLocals.size(), cellBodyExpression);
-                            defineRelation(relationName, parameterTypes, relationLocals.size(), body);
-                        });*/
-
-                        if (atRoot)
-                            relationBindings.put(new Selector(relationName, parameterTypes), binding);
-
-                        return binding;
-                    }
-
-                    private void update() {
-                        if (Arrays.asList(statements).stream().allMatch(x -> x != null)) {
-                            Consumer<Object[]> body = args ->
-                                Arrays.asList(statements).forEach(x ->
-                                    x.accept(args));
-                            defineRelation(relationName, parameterTypes, relationLocals.size(), body);
-                        }
-                    }
-                };
-
-
-                //return null;
-            }
-
-            @Override
-            public Cell<Consumer<Object[]>> visitRelationCall(@NotNull LangParser.RelationCallContext ctx) {
-                /*String relationName = ctx.name.getText();
-
-                // Each argument is assumed to be a cell
-                // First id is assumed to be the name
-                Function<Object[], Object>[] argumentSources = (Function<Object[], Object>[]) ctx.id().stream().skip(1).map(x -> {
-                    String argumentName = x.ID().getText();
-                    int ordinal = localOrdinal(locals, argumentName, depth);
-
-                    boolean isFromSelection = ordinal == -1;
-
-                    if (isFromSelection) {
-                        SlotComponent currentTarget = (SlotComponent) environment.get(argumentName);
-
-                        return (Function<Object[], Object>) objects -> currentTarget;
-
-                    } else {
-                        return new Function<Object[], Object>() {
-                            @Override
-                            public Object apply(Object[] args) {
-                                return args[ordinal];
-                            }
-                        };
-                    }
-                }).toArray(s -> new Function[s]);
-
-                return args -> {
-                    Object[] arguments = Arrays.asList(argumentSources).stream().map(x -> x.apply(args)).toArray();
-                    GenericRelationInfo relation = resolveRelation(relationName, arguments);
-
-                    if (relation != null) {
-                        Object[] locals = new Object[relation.localCount];
-                        for (int i = 0; i < arguments.length; i++) {
-                            if (arguments[i] instanceof BlockClosure)
-                                ((BlockClosure) arguments[i]).setLocals(locals);
-                        }
-                        System.arraycopy(arguments, 0, locals, 0, arguments.length);
-                        relation.body.accept(locals);
-                    }
-                };*/
-
-                String relationName = ctx.name.getText();
-
-                //java.util.List<Cell<Function<Object[], Object>>> argumentCells = ctx.expression().stream().map(x -> reduceExpressionCell(x, idToCellMap, locals, depth)).collect(Collectors.toList());
-
-                java.util.List<Cell<Function<Object[], Object>>> argumentCells = ctx.id().stream().skip(1).map(x -> {
-                    String argumentName = x.ID().getText();
-                    int ordinal = localOrdinal(locals, argumentName, depth);
-
-                    boolean isFromSelection = ordinal == -1;
-
-                    if (isFromSelection) {
-                        SlotComponent currentTarget = (SlotComponent) environment.get(argumentName);
-
-                        Function<Object[], Object> expression = args -> currentTarget;
-                        return new Singleton<>(expression);
-                    } else {
-                        Function<Object[], Object> expression = args -> args[ordinal];
-                        return new Singleton<>(expression);
-                        /*return new Function<Object[], Object>() {
-                            @Override
-                            public Object apply(Object[] args) {
-                                return args[ordinal];
-                            }
-                        };*/
-                    }
-                }).collect(Collectors.toList());// .toArray(s -> new Function[s]);
-
                 return createStatementRelationCall(relationName, argumentCells);
             }
         });
@@ -1787,7 +1331,7 @@ public class MainView extends JFrame implements Canvas {
 
         programCtx.statement().stream().forEach(x -> {
             ArrayList<VariableInfo> locals = new ArrayList<VariableInfo>();
-            Cell<Consumer<Object[]>> statementCell = parseStatement2(x, locals, 0, true);
+            Cell<Consumer<Object[]>> statementCell = parseStatement(x, locals, 0, true);
             statementCell.consume(statement -> {
                 Object[] args = new Object[locals.size()];
                 statement.accept(args);
@@ -1795,17 +1339,7 @@ public class MainView extends JFrame implements Canvas {
         });
     }
 
-    private Cell<Function<Object[], Object>> createMetaExpressionFunctionCall(String name, java.util.List<Cell<Function<Object[], Object>>> metaArgumentCells) {
-        // Return cells that provides expressions that provides function call expressions
-        return new Cell<Function<Object[], Object>>() {
-            @Override
-            public Binding consume(CellConsumer<Function<Object[], Object>> consumer) {
-                return null;
-            }
-        };
-    }
-
-    private Function<Object[], Cell> createExpressionFunctionCall2(String name, java.util.List<Function<Object[], Cell>> argumentExpressions, int depth) {
+    private Function<Object[], Cell> createExpressionFunctionCall(String name, java.util.List<Function<Object[], Cell>> argumentExpressions, int depth) {
         return args -> {
             List<Cell> argumentCells = argumentExpressions.stream().map(x -> x.apply(args)).collect(Collectors.toList());
 
@@ -1893,130 +1427,6 @@ public class MainView extends JFrame implements Canvas {
         };
     }
 
-    private Cell<Function<Object[], Object>> createExpressionFunctionCall(String name, java.util.List<Cell<Function<Object[], Object>>> argumentCells) {
-        return new Cell<Function<Object[], Object>>() {
-            @Override
-            public Binding consume(CellConsumer<Function<Object[], Object>> consumer) {
-                return new Binding() {
-                    private GenericFunction functionBinding = getFunction(new GenericSelector(name, argumentCells.size()));
-                    private Function<Object[], Object>[] expressionArguments = (Function<Object[], Object>[])new Function[argumentCells.size()];
-                    private Binding functionBindingBinding;
-                    private java.util.List<Binding> bindings;
-                    private Map<SpecificSelector, SpecificFunctionInfo> functions;
-
-                    {
-                        functionBindingBinding = functionBinding.consume(f -> {
-                            this.functions = f;
-                            update();
-                        });
-                        bindings = IntStream.range(0, argumentCells.size()).mapToObj(i -> argumentCells.get(i).consume(next -> {
-                            expressionArguments[i] = next;
-                            update();
-                        })).collect(Collectors.toList());
-                    }
-
-                    private void update() {
-                        if(Arrays.asList(expressionArguments).stream().filter(x -> x == null).count() == 0) {
-                            Function<Object[], Object> next = args -> {
-                                Object[] callArgs = Arrays.asList(expressionArguments).stream().map(x -> x.apply(args)).toArray();
-                                Class<?>[] parameterTypes = Arrays.asList(callArgs).stream().map(x -> x.getClass()).toArray(s -> new Class<?>[callArgs.length]);
-
-                                if(functions != null) {
-                                    SpecificFunctionInfo function = GenericFunction.resolve(functions, parameterTypes);
-
-                                    if(function != null) {
-                                        Object[] locals = new Object[function.localCount];
-                                        for(int i = 0; i < callArgs.length; i++) {
-                                            if(callArgs[i] instanceof BlockClosure)
-                                                ((BlockClosure) callArgs[i]).setLocals(locals);
-                                        }
-                                        System.arraycopy(callArgs, 0, locals, 0, callArgs.length);
-
-                                        return function.body.apply(locals);
-                                    }
-                                }
-
-                                return null;
-                            };
-
-                            consumer.next(next);
-                        }
-                    }
-
-                    @Override
-                    public void remove() {
-                        functionBindingBinding.remove();
-                        functionBindingBinding = null;
-                        bindings.forEach(x -> x.remove());
-                        expressionArguments = null;
-                        bindings = null;
-                    }
-                };
-            }
-        };
-    }
-
-    private Cell<Consumer<Object[]>> createStatementRelationCall2(String name, java.util.List<Cell<Function<Object[], Object>>> argumentCells) {
-        return new Cell<Consumer<Object[]>>() {
-            @Override
-            public Binding consume(CellConsumer<Consumer<Object[]>> consumer) {
-                return new Binding() {
-                    private GenericRelation genericRelation = getRelation(new GenericSelector(name, argumentCells.size()));
-                    private Function<Object[], Object>[] expressionArguments = (Function<Object[], Object>[])new Function[argumentCells.size()];
-                    private Binding genericRelationBinding;
-                    private java.util.List<Binding> bindings;
-                    private Map<SpecificSelector, SpecificRelationInfo> specificRelations;
-
-                    {
-                        genericRelationBinding = genericRelation.consume(f -> {
-                            this.specificRelations = f;
-                            update();
-                        });
-                        bindings = IntStream.range(0, argumentCells.size()).mapToObj(i -> argumentCells.get(i).consume(next -> {
-                            expressionArguments[i] = next;
-                            update();
-                        })).collect(Collectors.toList());
-                    }
-
-                    private void update() {
-                        if(Arrays.asList(expressionArguments).stream().filter(x -> x == null).count() == 0) {
-                            Consumer<Object[]> next = args -> {
-                                Object[] callArgs = Arrays.asList(expressionArguments).stream().map(x -> x.apply(args)).toArray();
-                                Class<?>[] parameterTypes = Arrays.asList(callArgs).stream().map(x -> x.getClass()).toArray(s -> new Class<?>[callArgs.length]);
-
-                                if(specificRelations != null) {
-                                    SpecificRelationInfo relation = GenericRelation.resolve(specificRelations, parameterTypes);
-
-                                    if(relation != null) {
-                                        Object[] locals = new Object[relation.localCount];
-                                        for(int i = 0; i < callArgs.length; i++) {
-                                            if(callArgs[i] instanceof BlockClosure)
-                                                ((BlockClosure) callArgs[i]).setLocals(locals);
-                                        }
-                                        System.arraycopy(callArgs, 0, locals, 0, callArgs.length);
-
-                                        relation.body.accept(locals);
-                                    }
-                                }
-                            };
-
-                            consumer.next(next);
-                        }
-                    }
-
-                    @Override
-                    public void remove() {
-                        genericRelationBinding.remove();
-                        genericRelationBinding = null;
-                        bindings.forEach(x -> x.remove());
-                        expressionArguments = null;
-                        bindings = null;
-                    }
-                };
-            }
-        };
-    }
-
     private Cell<Consumer<Object[]>> createStatementRelationCall(String name, java.util.List<Cell<Function<Object[], Object>>> argumentCells) {
         return new Cell<Consumer<Object[]>>() {
             @Override
@@ -2079,246 +1489,7 @@ public class MainView extends JFrame implements Canvas {
     }
 
     private Function<Object[], Cell> createExpressionBinaryOperation(String operator, Function<Object[], Cell> lhsCell, Function<Object[], Cell> rhsCell, int depth) {
-        return createExpressionFunctionCall2(operator, Arrays.asList(lhsCell, rhsCell), depth);
-    }
-
-    private Cell<Function<Object[], Object>> createExpressionBinaryOperation(String operator, Cell<Function<Object[], Object>> lhsCell, Cell<Function<Object[], Object>> rhsCell) {
-        return createExpressionFunctionCall(operator, Arrays.asList(lhsCell, rhsCell));
-    }
-
-    private Cell<Function<Object[], Object>> createMetaExpressionBinaryOperation(String operator, Cell<Function<Object[], Object>> lhsCell, Cell<Function<Object[], Object>> rhsCell) {
-        return createMetaExpressionFunctionCall(operator, Arrays.asList(lhsCell, rhsCell));
-    }
-
-    // Should return a cell, which represents code
-    // I.e., each value consumed from such a cell is code, than can be evaluated
-    // Should procude meta cells; cells which values are cells
-    // Should produce something evaluatable
-    // Should value method be part of Cell or rather a Expression type?
-    // So, ExpressionCells produce such expressions
-    // - a cell itself could be an expression
-    // Cells are consumable; expressions are reducable
-    private Cell<Function<Object[], Object>> reduceExpressionCell(ParserRuleContext ctx, Map<String, Cell> idToCellMap, ArrayList<VariableInfo> locals, int depth) {
-        return ctx.accept(new LangBaseVisitor<Cell<Function<Object[], Object>>>() {
-            @Override
-            public Cell<Function<Object[], Object>> visitAddExpression(@NotNull LangParser.AddExpressionContext ctx) {
-                Cell<Function<Object[], Object>> lhs = reduceExpressionCell(ctx.mulExpression(0), idToCellMap, locals, depth);
-
-                if (ctx.mulExpression().size() > 1) {
-                    for (int i = 1; i < ctx.mulExpression().size(); i++) {
-                        Cell<Function<Object[], Object>> rhsCell = reduceExpressionCell(ctx.mulExpression(i), idToCellMap, locals, depth);
-
-                        Cell<Function<Object[], Object>> lhsCell = lhs;
-
-                        String operator = ctx.ADD_OP(i - 1).getText();
-
-                        lhs = createExpressionBinaryOperation(operator, lhsCell, rhsCell);
-                    }
-                }
-
-                return lhs;
-            }
-
-            @Override
-            public Cell<Function<Object[], Object>> visitMulExpression(@NotNull LangParser.MulExpressionContext ctx) {
-                Cell<Function<Object[], Object>> lhs = reduceExpressionCell(ctx.leafExpression(0), idToCellMap, locals, depth);
-
-                if (ctx.leafExpression().size() > 1) {
-                    for (int i = 1; i < ctx.leafExpression().size(); i++) {
-                        Cell<Function<Object[], Object>> rhsCell = reduceExpressionCell(ctx.leafExpression(i), idToCellMap, locals, depth);
-
-                        Cell<Function<Object[], Object>> lhsCell = lhs;
-
-                        String operator = ctx.MUL_OP(i - 1).getText();
-
-                        lhs = createExpressionBinaryOperation(operator, lhsCell, rhsCell);
-                    }
-                }
-
-                return lhs;
-            }
-
-            @Override
-            public Cell<Function<Object[], Object>> visitFunctionCall(@NotNull LangParser.FunctionCallContext ctx) {
-                String name = ctx.id().ID().getText();
-
-                java.util.List<Cell<Function<Object[], Object>>> argumentCells = ctx.expression().stream().map(x -> reduceExpressionCell(x, idToCellMap, locals, depth)).collect(Collectors.toList());
-
-                return createExpressionFunctionCall(name, argumentCells);
-            }
-
-            @Override
-            public Cell<Function<Object[], Object>> visitProperty(@NotNull LangParser.PropertyContext ctx) {
-                String propertyName = ctx.name.ID().getText();
-                String targetName = ctx.target.ID().getText();
-
-                int ordinal = localOrdinal(locals, targetName, depth);
-
-                boolean isFromSelection = ordinal == -1;
-
-                if (isFromSelection) {
-                    Cell cell = environment.get(targetName);
-
-                    idToCellMap.put(targetName, cell);
-
-                    return ((SlotComponent) cell).propertyExpression(propertyName);
-                }
-
-                return new Cell<Function<Object[], Object>>() {
-                    @Override
-                    public Binding consume(CellConsumer<Function<Object[], Object>> consumer) {
-                        Function<Object[], Object> expression = eArgs -> {
-                            Object cell = eArgs[ordinal];
-                            return ((SlotComponent) cell).propertyExpression(propertyName);//.getValue();
-                        };
-
-                        consumer.next(expression);
-
-                        return () -> { };
-
-                        /*Object cell = args[ordinal];
-                        return ((SlotComponent) cell).property(propertyName).consume(args, consumer);*/
-                    }
-                };
-            }
-
-            @Override
-            public Cell<Function<Object[], Object>> visitId(@NotNull LangParser.IdContext ctx) {
-                String parameterName = ctx.ID().getText();
-
-                int ordinal = localOrdinal(locals, parameterName, depth);
-
-                boolean isFromSelection = ordinal == -1;
-
-                if (isFromSelection) {
-                    Cell cell = environment.get(parameterName);
-
-                    idToCellMap.put(parameterName, cell);
-
-                    return new Cell<Function<Object[], Object>>() {
-                        @Override
-                        public Binding consume(CellConsumer consumer) {
-                            return cell.consume(v -> {
-                                Function<Object[], Object> expression = eArgs -> v;
-                                consumer.next(expression);
-                            });
-                        }
-                    };
-                }
-
-                Function<Object[], Object> expression = args -> args[ordinal];
-
-                return new Singleton<>(expression);
-            }
-
-            @Override
-            public Cell<Function<Object[], Object>> visitNumber(@NotNull LangParser.NumberContext ctx) {
-                BigDecimal value = new BigDecimal(ctx.NUMBER().getText());
-                Function<Object[], Object> expression = args -> value;
-
-                return new Singleton<>(expression);
-            }
-
-            @Override
-            public Cell<Function<Object[], Object>> visitString(@NotNull LangParser.StringContext ctx) {
-                String rawValue = ctx.STRING().getText().substring(1, ctx.STRING().getText().length() - 1);
-                String value = rawValue.replace("\\n", "\n").replace("\\r", "\r").replace("\\t", "\t").replace("\\\\", "\\");
-                Function<Object[], Object> expression = args -> value;
-
-                return new Singleton<>(expression);
-            }
-
-            @Override
-            public Cell<Function<Object[], Object>> visitArray(@NotNull LangParser.ArrayContext ctx) {
-                java.util.List<Cell<Function<Object[], Object>>> valueCells =
-                    ctx.expression().stream().map(x -> reduceExpressionCell(x, idToCellMap, locals, depth)).collect(Collectors.toList());
-
-                // Could be a usage of a/the list function?
-
-                return new Cell<Function<Object[], Object>>() {
-                    @Override
-                    public Binding consume(CellConsumer<Function<Object[], Object>> consumer) {
-                        return new Binding() {
-                            private java.util.List<Function<Object[], Object>> expressionArguments = new ArrayList<>();
-                            private java.util.List<Binding> bindings;
-
-                            {
-                                IntStream.range(0, valueCells.size()).forEach(i -> expressionArguments.add(null));
-                                bindings = IntStream.range(0, valueCells.size()).mapToObj(i -> valueCells.get(i).consume(next -> {
-                                    expressionArguments.set(i, next);
-                                    update();
-                                })).collect(Collectors.toList());
-                            }
-
-                            private void update() {
-                                if (expressionArguments.stream().filter(x -> x == null).count() == 0) {
-                                    //Object next = value(null);//valueCells.stream().map(x -> x.value(null)).toArray(s -> new Object[s]);
-
-                                    Function<Object[], Object> next = args -> {
-                                        Object[] values = expressionArguments.stream().map(x -> x.apply(null)).toArray();
-                                        return new Tuple(values);
-                                    };
-
-                                    consumer.next(next);
-                                }
-                            }
-
-                            @Override
-                            public void remove() {
-                                bindings.forEach(x -> x.remove());
-                                expressionArguments = null;
-                                bindings = null;
-                            }
-                        };
-                    }
-                };
-            }
-
-            @Override
-            public Cell<Function<Object[], Object>> visitBlock(@NotNull LangParser.BlockContext ctx) {
-                int localsStart = locals.size();
-
-                int blockDepth = depth + 1;
-                if (ctx.parameters() != null)
-                    locals.addAll(ctx.parameters().ID().stream().map(x -> new VariableInfo(Object.class, x.getText(), blockDepth)).collect(Collectors.toList()));
-
-                Cell<Function<Object[], Object>> bodyCell = reduceExpressionCell(ctx.expression(), idToCellMap, locals, blockDepth);
-                int localsCount = locals.size() - localsStart;
-
-                return new Cell<Function<Object[], Object>>() {
-                    @Override
-                    public Binding consume(CellConsumer<Function<Object[], Object>> consumer) {
-                        return bodyCell.consume(v -> {
-                            Function<Object[], Object> expression = eArgs ->
-                                new BlockClosure(v, eArgs, localsStart, localsCount);
-
-                            consumer.next(expression);
-                        });
-                    }
-                };
-
-
-                /*return new Cell() {
-                    @Override
-                    public Binding consume(Object[] args, CellConsumer consumer) {
-                        // The bodyCell should be consumed in a "meta way".
-                        // I.e., it should not be evaluated but changes to its structure is to be consumed
-                        return bodyCell.consume(args, v ->
-                            consumer.next(value(null)));
-                    }
-
-                    @Override
-                    public Object value(Object[] args) {
-                        return new BlockClosure(bodyCell, args, localsStart, localsCount);
-                    }
-                };*/
-            }
-
-            @Override
-            public Cell<Function<Object[], Object>> visitEmbeddedExpression(@NotNull LangParser.EmbeddedExpressionContext ctx) {
-                return reduceExpressionCell(ctx.expression(), idToCellMap, locals, depth);
-            }
-        });
+        return createExpressionFunctionCall(operator, Arrays.asList(lhsCell, rhsCell), depth);
     }
 
     private int localOrdinal(ArrayList<VariableInfo> locals, String name, int depth) {
