@@ -1248,12 +1248,11 @@ public class MainView extends JFrame implements Canvas {
                 if (isFromSelection) {
                     SlotComponent currentTarget = (SlotComponent) environment.get(targetName);
 
-                    if (atRoot) {
-                        // If there already is a binding for this property, then remove this binding
-                        // Binding is implicitly removed within propertyAssign
-                    }
-
                     return new Singleton<>(args -> {
+                        if (atRoot) {
+                            // If there already is a binding for this property, then remove this binding
+                            // Binding is implicitly removed within propertyAssign
+                        }
                         Cell value = valueExpression.apply(args);
                         currentTarget.propertyAssign(propertyName, value);
                     });
@@ -1389,39 +1388,58 @@ public class MainView extends JFrame implements Canvas {
                 });
             }
 
-            /*
             @Override
-            public Consumer<Object[]> visitRelation(@NotNull LangParser.RelationContext ctx) {
+            public Cell<Consumer<Object[]>> visitRelation(@NotNull LangParser.RelationContext ctx) {
                 String relationName = ctx.ID().getText();
 
                 ArrayList<VariableInfo> relationLocals = new ArrayList<>();
                 if (ctx.parameters() != null)
                     relationLocals.addAll(ctx.parameters().ID().stream().map(x -> new VariableInfo(Object.class, x.getText(), 0)).collect(Collectors.toList()));
 
-                List<Consumer<Object[]>> statements = ctx.statement().stream().map(x -> parseStatement2(x, relationLocals, 0, false)).collect(Collectors.toList());
+                List<Cell<Consumer<Object[]>>> statementCells = ctx.statement().stream().map(x -> parseStatement2(x, relationLocals, 0, false)).collect(Collectors.toList());
                 Stream<VariableInfo> parameters = relationLocals.stream().filter(x -> x.depth == 0);
                 Class<?>[] parameterTypes = parameters.map(x -> x.type).toArray(s -> new Class<?>[s]);
 
-                return args -> {
-                    if (atRoot) {
-                        //Binding existingBinding = relationBindings.get(new Selector(relationName, parameterTypes));
-                        //if (existingBinding != null)
-                        //    existingBinding.remove();
+                return new Cell<Consumer<Object[]>>() {
+                    private Consumer<Object[]>[] statements = new Consumer[statementCells.size()];
+
+                    @Override
+                    public Binding consume(CellConsumer<Consumer<Object[]>> consumer) {
+                        if (atRoot) {
+                            Binding existingBinding = relationBindings.get(new Selector(relationName, parameterTypes));
+                            if (existingBinding != null)
+                                existingBinding.remove();
+                        }
+
+                        // Have a binding for each statement
+                        List<Binding> bindings = IntStream.range(0, statements.length).mapToObj(i -> {
+                            Cell<Consumer<Object[]>> statementCell = statementCells.get(i);
+                            return statementCell.consume(statement -> {
+                                statements[i] = statement;
+                                update();
+                            });
+                        }).collect(Collectors.toList());
+                        Binding binding = () -> bindings.forEach(x -> x.remove());
+
+                        if (atRoot)
+                            relationBindings.put(new Selector(relationName, parameterTypes), binding);
+
+                        return binding;
                     }
 
-                    Consumer<Object[]> body = bodyArgs ->
-                        statements.forEach(x ->
-                            x.accept(bodyArgs));
-                    defineRelation(relationName, parameterTypes, relationLocals.size(), body);
-
-                    //if (atRoot)
-                    //    relationBindings.put(new Selector(relationName, parameterTypes), binding);
+                    private void update() {
+                        if (Arrays.asList(statements).stream().allMatch(x -> x != null)) {
+                            Consumer<Object[]> body = args ->
+                                Arrays.asList(statements).forEach(x ->
+                                    x.accept(args));
+                            defineRelation(relationName, parameterTypes, relationLocals.size(), body);
+                        }
+                    }
                 };
             }
-            */
 
-            /*@Override
-            public Consumer<Object[]> visitRelationCall(@NotNull LangParser.RelationCallContext ctx) {
+            @Override
+            public Cell<Consumer<Object[]>> visitRelationCall(@NotNull LangParser.RelationCallContext ctx) {
                 String relationName = ctx.name.getText();
 
                 java.util.List<Cell<Function<Object[], Object>>> argumentCells = ctx.id().stream().skip(1).map(x -> {
@@ -1439,10 +1457,10 @@ public class MainView extends JFrame implements Canvas {
                         Function<Object[], Object> expression = args -> args[ordinal];
                         return new Singleton<>(expression);
                     }
-                }).collect(Collectors.toList());// .toArray(s -> new Function[s]);
+                }).collect(Collectors.toList());
 
                 return createStatementRelationCall2(relationName, argumentCells);
-            }*/
+            }
         });
     }
 
