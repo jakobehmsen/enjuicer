@@ -9,7 +9,6 @@ import java.math.BigDecimal;
 import java.util.ArrayList;
 import java.util.Hashtable;
 import java.util.function.Consumer;
-import java.util.function.Function;
 
 public class SlotComponent extends JPanel implements Cell<Object>, CellConsumer<Object> {
     private Slot<Object> slot;
@@ -33,11 +32,6 @@ public class SlotComponent extends JPanel implements Cell<Object>, CellConsumer<
     public Binding getBinding() {
         return binding;
     }
-
-    /*@Override
-    public void setBinding(Binding binding) {
-        //slot.setBinding(binding);
-    }*/
 
     @Override
     public Binding consume(CellConsumer<Object> consumer) {
@@ -71,11 +65,6 @@ public class SlotComponent extends JPanel implements Cell<Object>, CellConsumer<
     public Object getDescription() {
         return slot.getDescription();
     }
-
-    /*@Override
-    public Binding getBinding() {
-        return slot.getBinding();
-    }*/
 
     private Hashtable<String, Binding> propertyBindings = new Hashtable<>();
 
@@ -118,113 +107,13 @@ public class SlotComponent extends JPanel implements Cell<Object>, CellConsumer<
         propertyBindings.put(name, binding);
     }
 
-    public void propertyAssign(Object[] args, String name, Object value) {//Cell<Object> valueCell) {
-        Consumer propertyUpdater = propertyUpdater(name);
-        propertyUpdater.accept(value);
-    }
-
-    public abstract class PropertyExpressionCell implements Cell<Function<Object[], Object>> {
-        ArrayList<CellConsumer<Function<Object[], Object>>> consumers = new ArrayList<>();
-
-        @Override
-        public Binding consume(CellConsumer<Function<Object[], Object>> consumer) {
-            consumers.add(consumer);
-            Function<Object[], Object> expression = eArgs -> getValue();
-            consumer.next(expression);
-            return () -> {
-                consumers.remove(consumer);
-                if(consumers.isEmpty())
-                    clean();
-            };
-        }
-
-        protected void post() {
-            Function<Object[], Object> expression = args -> getValue();
-            consumers.forEach(x -> x.next(expression));
-        }
-
-        protected abstract void clean();
-
-        protected abstract Object getValue();
-    }
-
-    private abstract class ComponentListerPropertyExpressionCell extends PropertyExpressionCell {
-        Object lastValue;
-
-        ComponentListener listener = new ComponentAdapter() {
-            {
-                lastValue = getValue();
-            }
-
-            @Override
-            public void componentResized(ComponentEvent e) {
-                componentChanged();
-            }
-
-            @Override
-            public void componentMoved(ComponentEvent e) {
-                componentChanged();
-            }
-        };
-
-        {
-            addComponentListener(listener);
-        }
-
-        @Override
-        protected void clean() {
-            removeComponentListener(listener);
-        }
-
-        protected void componentChanged() {
-            if(lastValue == null || !lastValue.equals(getValue()));
-            post();
-            lastValue = getValue();
-        }
-    }
-
-    public PropertyExpressionCell propertyExpression(String name) {
-        switch(name) {
-            case "x":
-                return new ComponentListerPropertyExpressionCell() {
-                    @Override
-                    public Object getValue() {
-                        return new BigDecimal(getX());
-                    }
-                };
-            case "y":
-                return new ComponentListerPropertyExpressionCell() {
-                    @Override
-                    public Object getValue() {
-                        return new BigDecimal(getY());
-                    }
-                };
-            case "width":
-                return new ComponentListerPropertyExpressionCell() {
-                    @Override
-                    public Object getValue() {
-                        return new BigDecimal(getWidth());
-                    }
-                };
-            case "height":
-                return new ComponentListerPropertyExpressionCell() {
-                    @Override
-                    public Object getValue() {
-                        return new BigDecimal(getHeight());
-                    }
-                };
-        }
-
-        return null;
-    }
-
     private abstract class PropertyCell implements Cell {
         ArrayList<CellConsumer> consumers = new ArrayList<>();
 
         @Override
         public Binding consume(CellConsumer consumer) {
             consumers.add(consumer);
-            consumer.next(value(null));
+            consumer.next(value());
             return () -> {
                 consumers.remove(consumer);
                 if(consumers.isEmpty())
@@ -233,12 +122,12 @@ public class SlotComponent extends JPanel implements Cell<Object>, CellConsumer<
         }
 
         protected void post() {
-            consumers.forEach(x -> x.next(value(null)));
+            consumers.forEach(x -> x.next(value()));
         }
 
         protected abstract void clean();
 
-        protected abstract Object value(Object[] args);
+        protected abstract Object value();
     }
 
     private abstract class ComponentListerPropertyCell extends PropertyCell {
@@ -246,7 +135,7 @@ public class SlotComponent extends JPanel implements Cell<Object>, CellConsumer<
 
         ComponentListener listener = new ComponentAdapter() {
             {
-                lastValue = value(null);
+                lastValue = value();
             }
 
             @Override
@@ -270,9 +159,9 @@ public class SlotComponent extends JPanel implements Cell<Object>, CellConsumer<
         }
 
         protected void componentChanged() {
-            if(lastValue == null || !lastValue.equals(value(null)))
+            if(lastValue == null || !lastValue.equals(value()))
                 post();
-            lastValue = value(null);
+            lastValue = value();
         }
     }
 
@@ -281,28 +170,28 @@ public class SlotComponent extends JPanel implements Cell<Object>, CellConsumer<
             case "x":
                 return new ComponentListerPropertyCell() {
                     @Override
-                    protected Object value(Object[] args) {
+                    protected Object value() {
                         return new BigDecimal(getX());
                     }
                 };
             case "y":
                 return new ComponentListerPropertyCell() {
                     @Override
-                    protected Object value(Object[] args) {
+                    protected Object value() {
                         return new BigDecimal(getY());
                     }
                 };
             case "width":
                 return new ComponentListerPropertyCell() {
                     @Override
-                    protected Object value(Object[] args) {
+                    protected Object value() {
                         return new BigDecimal(getWidth());
                     }
                 };
             case "height":
                 return new ComponentListerPropertyCell() {
                     @Override
-                    protected Object value(Object[] args) {
+                    protected Object value() {
                         return new BigDecimal(getHeight());
                     }
                 };
