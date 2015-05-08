@@ -452,9 +452,9 @@ public class MainView extends JFrame implements Canvas {
             return new Tuple(newValues);
         });
         define("apply", Tuple.class, BlockClosure.class, (tuple, reduction) ->
-                Arrays.asList(tuple.values).stream().reduce((x, y) ->
-                        reduction.value(new Object[]{x, y})
-                ).get()
+            Arrays.asList(tuple.values).stream().reduce((x, y) ->
+                    reduction.value(new Object[]{x, y})
+            ).get()
         );
         define("map", Tuple.class, BlockClosure.class, (tuple, reduction) ->
             new Tuple(Arrays.asList(tuple.values).stream().map(x -> reduction.value(new Object[]{x})).toArray())
@@ -469,6 +469,8 @@ public class MainView extends JFrame implements Canvas {
             new Tuple(Arrays.asList(tuple.values).stream().flatMap(x ->
                 Stream.of(((Tuple) mapper.value(new Object[]{x})).values)).toArray())
         );
+
+        define("time", BigDecimal.class, resolution -> new TimeCell(resolution));
     }
 
     private ButtonGroup toolBoxButtonGroup;
@@ -866,7 +868,15 @@ public class MainView extends JFrame implements Canvas {
 
                 java.util.List<Function<Object[], Cell>> argumentCells = ctx.expression().stream().map(x -> parseExpression(x, idToCellMap, locals, depth)).collect(Collectors.toList());
 
-                return createExpressionFunctionCall(name, argumentCells, depth);
+                switch(name) {
+                    case "proxy":
+                        return args -> {
+                            Cell cellOfCells = argumentCells.get(0).apply(args);
+                            return new ProxyCell(cellOfCells);
+                        };
+                    default:
+                        return createExpressionFunctionCall(name, argumentCells, depth);
+                }
             }
 
             @Override

@@ -8,14 +8,16 @@ public abstract class BufferedCell<T> implements Cell<T> {
     @Override
     public Binding consume(CellConsumer<T> consumer) {
         consumers.add(consumer);
+        addedConsumer(consumer);
 
-        supplyTo(consumer);
-
-        return () -> consumers.remove(consumer);
+        return () -> {
+            consumers.remove(consumer);
+            removedConsumer(consumer);
+        };
     }
 
-    protected void supplyToAll() {
-        consumers.forEach(x -> supplyTo(x));
+    protected void supplyToAll(T value) {
+        consumers.forEach(x -> x.next(value));
     }
 
     protected void supplyAtEnd() {
@@ -23,5 +25,9 @@ public abstract class BufferedCell<T> implements Cell<T> {
         // Clear?
     }
 
-    protected abstract void supplyTo(CellConsumer<T> consumer);
+    protected void addedConsumer(CellConsumer<T> consumer) { }
+    protected void removedConsumer(CellConsumer<T> consumer) { }
+    protected int getConsumerCount() {
+        return consumers.size();
+    }
 }
